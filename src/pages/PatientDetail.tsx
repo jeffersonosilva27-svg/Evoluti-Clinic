@@ -78,7 +78,7 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
   useEffect(() => {
     const unsubPatient = onSnapshot(doc(db, 'patients', patientId), (snap) => {
       if (snap.exists()) setPatient({ id: snap.id, ...snap.data() } as Patient);
-    });
+    }, (err) => console.error(err));
 
     const qEvolutions = query(
       collection(db, 'evolutions'),
@@ -87,7 +87,7 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
     );
     const unsubEvolutions = onSnapshot(qEvolutions, (snap) => {
       setEvolutions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Evolution)));
-    });
+    }, (err) => console.error(err));
 
     const getExercisesDb = async () => {
       const snap = await getDocs(query(collection(db, 'exercises')));
@@ -98,7 +98,7 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
     const qPatientExercises = query(collection(db, `patients/${patientId}/exercises`), orderBy('addedAt', 'desc'));
     const unsubPatientExercises = onSnapshot(qPatientExercises, (snap) => {
       setPatientExercises(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.error(err));
 
     return () => {
       unsubPatient();

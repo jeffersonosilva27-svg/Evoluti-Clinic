@@ -32,7 +32,10 @@ export interface Exercise {
 }
 
 export interface PatientExercise {
-  exerciseId: string;
+  id?: string;
+  exerciseId?: string;
+  name?: string;
+  description?: string;
   instructions: string;
   frequency: string;
   addedAt: any;

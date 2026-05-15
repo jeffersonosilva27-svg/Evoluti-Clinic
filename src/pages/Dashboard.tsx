@@ -14,6 +14,7 @@ import { Patient, Appointment } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import ViewConductModal from '../components/modals/ViewConductModal';
 
 export default function Dashboard() {
   const { profile } = useAuth();
@@ -26,6 +27,11 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<Patient[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedConductApp, setSelectedConductApp] = useState<Appointment | null>(null);
+
+  const handleViewConduct = (app: Appointment) => {
+    setSelectedConductApp(app);
+  };
 
   useEffect(() => {
     if (!profile) return;
@@ -166,16 +172,66 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Upcoming Appointments */}
+        <div className="order-1 lg:order-1 space-y-6 lg:col-span-2">
+          <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-3 border-b border-slate-200 pb-4">
+            <div className="w-8 h-8 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary">
+              <Calendar className="w-4 h-4" />
+            </div>
+            Próximos Atendimentos
+          </h3>
+          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-sm">
+            {upcomingAppointments.length > 0 ? upcomingAppointments.map((app, i) => (
+              <div key={app.id} className="p-5 flex gap-4 hover:bg-slate-50/30 transition-colors cursor-pointer group">
+                <div className="relative flex flex-col items-center">
+                  <div className="w-2 h-2 rounded-full bg-brand-primary ring-4 ring-brand-primary/20 mt-1.5 group-hover:bg-indigo-500 group-hover:ring-indigo-100 transition-colors" />
+                  {i < upcomingAppointments.length - 1 && <div className="absolute top-5 left-1/2 -translate-x-1/2 w-0.5 h-full bg-slate-100" />}
+                </div>
+                <div className="flex-1 w-0">
+                  <div className="flex justify-between items-start gap-2">
+                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight truncate group-hover:text-brand-primary transition-colors">{app.patientName}</p>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md whitespace-nowrap">
+                      {format(app.date.toDate(), 'HH:mm')}
+                    </span>
+                  </div>
+                  <div 
+                    className="mt-2 bg-slate-50 border border-slate-100 p-3 rounded-xl hover:border-brand-primary/30 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewConduct(app);
+                    }}
+                  >
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                      <span className="text-brand-primary uppercase tracking-widest font-black text-[10px] block mb-1">Ver Conduta</span> 
+                      <span className="italic text-slate-600 block">{app.type}</span>
+                    </p>
+                  </div>
+                  {profile?.role !== 'PROFISSIONAL' && (
+                    <p className="text-[9px] text-slate-400 mt-2 uppercase font-bold tracking-widest">
+                      Profissional: {app.professionalName}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )) : (
+              <div className="p-8 text-center text-slate-400">
+                <Calendar className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-bold">Agenda livre</p>
+                <p className="text-[10px] uppercase tracking-widest mt-1">Nenhum atendimento em breve.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Reassessment Alerts */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="order-2 lg:order-2 lg:col-span-1 space-y-6 border-t lg:border-t-0 lg:border-l border-slate-100 pt-8 lg:pt-0 lg:pl-8">
           <div className="flex items-center justify-between border-b border-slate-200 pb-4">
             <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-3">
               <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center text-amber-500">
                 <ClipboardCheck className="w-4 h-4" />
               </div>
-              Alertas de Reavaliação
+              Reavaliações
             </h3>
-            <button className="text-[10px] font-black text-brand-primary uppercase tracking-widest hover:translate-x-1 transition-transform">Ver todos →</button>
           </div>
           
           <div className="grid gap-3">
@@ -212,50 +268,13 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-
-        {/* Upcoming Appointments */}
-        <div className="space-y-6 lg:col-span-1 border-l border-slate-100 pl-8">
-          <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-3 border-b border-slate-200 pb-4">
-            <div className="w-8 h-8 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary">
-              <Calendar className="w-4 h-4" />
-            </div>
-            Próximos Atendimentos
-          </h3>
-          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-sm">
-            {upcomingAppointments.length > 0 ? upcomingAppointments.map((app, i) => (
-              <div key={app.id} className="p-5 flex gap-4 hover:bg-slate-50/30 transition-colors">
-                <div className="relative flex flex-col items-center">
-                  <div className="w-2 h-2 rounded-full bg-brand-primary ring-4 ring-brand-primary/20 mt-1.5" />
-                  {i < upcomingAppointments.length - 1 && <div className="absolute top-5 left-1/2 -translate-x-1/2 w-0.5 h-full bg-slate-100" />}
-                </div>
-                <div className="flex-1 w-0">
-                  <div className="flex justify-between items-start gap-2">
-                    <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight truncate">{app.patientName}</p>
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md whitespace-nowrap">
-                      {format(app.date.toDate(), 'HH:mm')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    <span className="font-bold text-slate-700">Conduta Pendente:</span> 
-                    <span className="block mt-0.5 italic text-slate-500 text-[11px]">{app.type}</span>
-                  </p>
-                  {profile?.role !== 'PROFISSIONAL' && (
-                    <p className="text-[9px] text-slate-400 mt-2 uppercase font-bold tracking-widest">
-                      Profissional: {app.professionalName}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )) : (
-              <div className="p-8 text-center text-slate-400">
-                <Calendar className="w-8 h-8 mx-auto mb-3 opacity-20" />
-                <p className="text-sm font-bold">Agenda livre</p>
-                <p className="text-[10px] uppercase tracking-widest mt-1">Nenhum atendimento em breve.</p>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
+      
+      <ViewConductModal 
+        isOpen={!!selectedConductApp} 
+        onClose={() => setSelectedConductApp(null)} 
+        appointment={selectedConductApp} 
+      />
     </div>
   );
 }

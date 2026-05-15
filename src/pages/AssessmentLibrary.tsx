@@ -148,11 +148,11 @@ export default function AssessmentLibrary() {
   useEffect(() => {
     const unsubTemplates = onSnapshot(collection(db, 'assessmentTemplates'), snap => {
       setDbTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as AssessmentTemplate)));
-    });
+    }, (err) => console.error(err));
     
     const unsubDeleted = onSnapshot(collection(db, 'deletedAssessmentTemplates'), snap => {
       setDeletedFixed(snap.docs.map(d => d.id));
-    });
+    }, (err) => console.error(err));
 
     return () => {
       unsubTemplates();
