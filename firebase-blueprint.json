@@ -1,0 +1,133 @@
+{
+  "entities": {
+    "Clinic": {
+      "title": "Clinic",
+      "description": "Represents a clinic unit",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "active"]
+    },
+    "User": {
+      "title": "User",
+      "description": "System user with role and clinical affiliations",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["SUPER_GESTOR", "GESTOR", "PROFISSIONAL", "RECEPCIONISTA"] },
+        "clinics": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "role", "clinics"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Clinical patient",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "lastAssessmentAt": { "type": "string", "format": "date-time" },
+        "sessionCountSinceAssessment": { "type": "integer" }
+      },
+      "required": ["name", "clinicId"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Scheduled session",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time" },
+        "clinicId": { "type": "string" },
+        "professionalId": { "type": "string" },
+        "patientId": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "attended", "cancelled"] },
+        "type": { "type": "string" }
+      },
+      "required": ["date", "clinicId", "professionalId", "patientId", "status"]
+    },
+    "Evolution": {
+      "title": "Evolution",
+      "description": "Clinical evolution record (SOAP)",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "professionalId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "content": {
+          "type": "object",
+          "properties": {
+            "subjective": { "type": "string" },
+            "objective": { "type": "string" },
+            "assessment": { "type": "string" },
+            "plan": { "type": "string" }
+          }
+        }
+      },
+      "required": ["patientId", "clinicId", "professionalId", "date", "content"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Validated clinical assessment result",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "professionalId": { "type": "string" },
+        "title": { "type": "string" },
+        "data": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "clinicId", "professionalId", "title", "data", "createdAt"]
+    },
+    "Financial": {
+      "title": "Financial Record",
+      "description": "Income or outcome record",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["income", "outcome"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["paid", "pending"] }
+      },
+      "required": ["clinicId", "date", "amount", "type", "status"]
+    },
+    "AssessmentTemplate": {
+      "title": "AssessmentTemplate",
+      "description": "Template for clinical assessments",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "instructions": { "type": "string" },
+        "scoring": { "type": "string" },
+        "reference": { "type": "string" },
+        "fields": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "fields"]
+    }
+  },
+  "firestore": {
+    "/assessmentTemplates/{templateId}": { "schema": "AssessmentTemplate", "description": "Assessment Templates" },
+    "/clinics/{clinicId}": { "schema": "Clinic", "description": "Clinics data" },
+    "/users/{userId}": { "schema": "User", "description": "User profiles and roles" },
+    "/patients/{patientId}": { "schema": "Patient", "description": "Patient records" },
+    "/appointments/{appointmentId}": { "schema": "Appointment", "description": "Schedules" },
+    "/evolutions/{evolutionId}": { "schema": "Evolution", "description": "Clinical evolutions" },
+    "/assessments/{assessmentId}": { "schema": "Assessment", "description": "Clinical assessments" },
+    "/financial/{financialId}": { "schema": "Financial", "description": "Financial records" }
+  }
+}

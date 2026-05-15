@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrapAdmin() {
+      return isSignedIn() && request.auth.token.email == 'jefferson.osilva27@gmail.com';
+    }
+
+    function isSuperGestor() {
+      return isSignedIn() && (
+        isBootstrapAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADM_SISTEMA')
+      );
+    }
+
+    function hasClinicAccess(clinicId) {
+      return isSignedIn() && (
+        isBootstrapAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADM_SISTEMA' ||
+          clinicId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clinics
+        ))
+      );
+    }
+
+    function shareAnyClinic(otherClinics) {
+      return isSignedIn() && (
+        isBootstrapAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clinics.hasAny(otherClinics))
+      );
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (
+        isSuperGestor() || userId == request.auth.uid
+      );
+      allow update: if isSignedIn() && (
+        isSuperGestor() || userId == request.auth.uid
+      );
+      allow delete: if isSuperGestor();
+    }
+
+    match /clinics/{clinicId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperGestor();
+    }
+
+    match /patients/{patientId} {
+      allow read: if isSignedIn() && hasClinicAccess(resource.data.clinicId);
+      allow create, update: if isSignedIn() && hasClinicAccess(request.resource.data.clinicId);
+      allow delete: if isSuperGestor();
+    }
+
+    match /appointments/{appId} {
+      allow read: if isSignedIn() && hasClinicAccess(resource.data.clinicId);
+      allow create, update: if isSignedIn() && hasClinicAccess(request.resource.data.clinicId);
+      allow delete: if isSignedIn() && (isSuperGestor() || resource.data.professionalId == request.auth.uid);
+    }
+
+    match /evolutions/{evoId} {
+      allow read: if isSignedIn() && hasClinicAccess(resource.data.clinicId);
+      allow create: if isSignedIn() && hasClinicAccess(request.resource.data.clinicId);
+      allow update: if isSignedIn() && (isSuperGestor() || resource.data.professionalId == request.auth.uid);
+      allow delete: if isSuperGestor();
+    }
+
+    match /financial/{recordId} {
+      allow read: if isSignedIn() && hasClinicAccess(resource.data.clinicId);
+      allow create, update: if isSignedIn() && hasClinicAccess(request.resource.data.clinicId);
+      allow delete: if isSuperGestor();
+    }
+    match /exercises/{exerciseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /assessmentTemplates/{templateId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSuperGestor() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'GESTOR') || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADM_SISTEMA');
+    }
+
+    match /deletedAssessmentTemplates/{templateId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperGestor() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'GESTOR') || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADM_SISTEMA');
+    }
+
+    match /patients/{patientId}/exercises/{exerciseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+  }
+}
