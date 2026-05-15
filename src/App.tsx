@@ -10,7 +10,6 @@ import PatientDetail from './pages/PatientDetail';
 import AssessmentLibrary from './pages/AssessmentLibrary';
 import Finance from './pages/Finance';
 import Management from './pages/Management';
-import SeedData from './components/SeedData';
 import NewAppointmentModal from './components/modals/NewAppointmentModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase/config';
@@ -41,7 +40,7 @@ function AppContent() {
         }
         
         const snap = await getDocs(q);
-        const fetchedClinics = snap.docs.map(d => ({ id: d.id, ...d.data() } as Clinic));
+        const fetchedClinics = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as Clinic));
         setClinics(fetchedClinics);
       } catch (err) {
         console.error("Error fetching clinics:", err);
@@ -55,7 +54,7 @@ function AppContent() {
       <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest animate-pulse">Carregando ClinicaSync...</p>
+          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest animate-pulse">Carregando Evoluti Clinic...</p>
         </div>
       </div>
     );
@@ -134,7 +133,6 @@ function AppContent() {
           {renderContent()}
         </motion.div>
       </AnimatePresence>
-      <SeedData />
       <NewAppointmentModal 
         isOpen={showNewAppointmentModal} 
         onClose={() => setShowNewAppointmentModal(false)} 

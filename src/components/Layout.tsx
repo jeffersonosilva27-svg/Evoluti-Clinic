@@ -64,9 +64,9 @@ export default function Layout({
           >
             <div className="p-8 flex items-center gap-3">
               <div className="w-8 h-8 bg-brand-primary rounded-lg flex items-center justify-center text-white font-black text-lg">
-                CS
+                EC
               </div>
-              <h1 className="font-extrabold text-xl tracking-tight">ClinicaSync</h1>
+              <h1 className="font-extrabold text-xl tracking-tight">Evoluti Clinic</h1>
             </div>
 
             <nav className="flex-1 py-4 space-y-0.5 overflow-y-auto">
@@ -124,9 +124,9 @@ export default function Layout({
             
             <div className="flex items-center gap-2 lg:hidden">
               <div className="w-6 h-6 bg-brand-primary rounded flex items-center justify-center text-white font-black text-xs">
-                CS
+                EC
               </div>
-              <span className="font-extrabold text-sm tracking-tight text-slate-800 italic">ClinicaSync</span>
+              <span className="font-extrabold text-sm tracking-tight text-slate-800 italic">Evoluti Clinic</span>
             </div>
 
             {profile?.email === 'jefferson.osilva27@gmail.com' && (

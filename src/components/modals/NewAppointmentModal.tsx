@@ -24,6 +24,7 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
     date: '',
     time: '08:00',
     type: 'Consulta',
+    room: '',
     // fields for program
     totalSessions: 10,
     daysOfWeek: [] as number[],
@@ -91,6 +92,37 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
       if (scheduleType === 'individual') {
         if (!formData.date) return;
         const dateTime = new Date(`${formData.date}T${formData.time}`);
+        
+        // Se for Domiciliar, cria blocos de deslocamento 1h antes e 1h depois
+        if (formData.room === 'Domiciliar') {
+          const antes = new Date(dateTime.getTime() - 60 * 60 * 1000);
+          const depois = new Date(dateTime.getTime() + 60 * 60 * 1000);
+          
+          await addDoc(collection(db, 'appointments'), {
+            patientId: formData.patientId,
+            professionalId: formData.professionalId,
+            clinicId: formData.clinicId,
+            date: Timestamp.fromDate(antes),
+            status: 'scheduled',
+            type: 'Deslocamento (Ida)',
+            room: 'Transito',
+            patientName: patient?.name || 'Paciente',
+            professionalName: professional?.name || 'Profissional'
+          });
+          
+          await addDoc(collection(db, 'appointments'), {
+            patientId: formData.patientId,
+            professionalId: formData.professionalId,
+            clinicId: formData.clinicId,
+            date: Timestamp.fromDate(depois),
+            status: 'scheduled',
+            type: 'Deslocamento (Volta)',
+            room: 'Transito',
+            patientName: patient?.name || 'Paciente',
+            professionalName: professional?.name || 'Profissional'
+          });
+        }
+
         await addDoc(collection(db, 'appointments'), {
           patientId: formData.patientId,
           professionalId: formData.professionalId,
@@ -98,6 +130,7 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
           date: Timestamp.fromDate(dateTime),
           status: 'scheduled',
           type: formData.type,
+          room: formData.room,
           patientName: patient?.name || 'Paciente',
           professionalName: professional?.name || 'Profissional'
         });
@@ -109,6 +142,31 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
         
         while (sessionsCreated < formData.totalSessions) {
           if (formData.daysOfWeek.includes(currentDate.getDay())) {
+            
+            if (formData.room === 'Domiciliar') {
+              const antes = new Date(currentDate.getTime() - 60 * 60 * 1000);
+              const depois = new Date(currentDate.getTime() + 60 * 60 * 1000);
+              const blockProps = {
+                patientId: formData.patientId,
+                professionalId: formData.professionalId,
+                clinicId: formData.clinicId,
+                status: 'scheduled' as const,
+                room: 'Transito',
+                patientName: patient?.name || 'Paciente',
+                professionalName: professional?.name || 'Profissional',
+              };
+              await addDoc(collection(db, 'appointments'), {
+                ...blockProps,
+                date: Timestamp.fromDate(antes),
+                type: 'Deslocamento (Ida) - Programa'
+              });
+              await addDoc(collection(db, 'appointments'), {
+                ...blockProps,
+                date: Timestamp.fromDate(depois),
+                type: 'Deslocamento (Volta) - Programa'
+              });
+            }
+
             await addDoc(collection(db, 'appointments'), {
               patientId: formData.patientId,
               professionalId: formData.professionalId,
@@ -116,6 +174,7 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
               date: Timestamp.fromDate(new Date(currentDate)),
               status: 'scheduled',
               type: formData.type + ' (Programa)',
+              room: formData.room,
               patientName: patient?.name || 'Paciente',
               professionalName: professional?.name || 'Profissional',
               programSessionParams: {
@@ -138,6 +197,7 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
         date: '',
         time: '08:00',
         type: 'Consulta',
+        room: '',
         totalSessions: 10,
         daysOfWeek: [],
         startDate: ''
@@ -332,20 +392,43 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
             </div>
           )}
 
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 ml-1">
-              Tipo de Atendimento
-            </label>
-            <select
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary outline-none transition-all"
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-            >
-              <option value="Consulta">Consulta</option>
-              <option value="Avaliação">Avaliação</option>
-              <option value="Sessão">Sessão</option>
-              <option value="Retorno">Retorno</option>
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 ml-1">
+                Tipo de Atendimento
+              </label>
+              <select
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary outline-none transition-all"
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              >
+                <option value="Consulta">Consulta</option>
+                <option value="Avaliação">Avaliação</option>
+                <option value="Sessão">Sessão</option>
+                <option value="Retorno">Retorno</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 ml-1">
+                Sala/Local
+              </label>
+              <select
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary outline-none transition-all"
+                value={formData.room}
+                onChange={(e) => setFormData({ ...formData, room: e.target.value })}
+              >
+                <option value="">Nenhum</option>
+                <option value="701">701 (Preferencial Fisio)</option>
+                <option value="703">703 (Preferencial Fisio)</option>
+                <option value="704">704 (Preferencial TO/Fono)</option>
+                <option value="705">705 (Preferencial TO/Fono)</option>
+                <option value="702">702 (Preferencial TO/Fono)</option>
+                <option value="Ginásio Clínico">Ginásio Clínico</option>
+                <option value="Esteira">Esteira</option>
+                <option value="Suspensor">Suspensor</option>
+                <option value="Domiciliar">Domiciliar (Bloqueia ±1h)</option>
+              </select>
+            </div>
           </div>
         </div>
 

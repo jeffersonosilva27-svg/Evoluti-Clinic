@@ -72,13 +72,15 @@ export default function PatientList({ onSelect }: { onSelect: (id: string) => vo
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Pacientes</h2>
           <p className="text-slate-400 text-sm font-medium mt-1">Gestão centralizada de prontuários clínicos.</p>
         </div>
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-6 py-3 bg-brand-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand-primary/20"
-        >
-          <UserPlus className="w-4 h-4" />
-          Novo Paciente
-        </button>
+        {profile?.role !== 'PROFISSIONAL' && (
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-6 py-3 bg-brand-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand-primary/20"
+          >
+            <UserPlus className="w-4 h-4" />
+            Novo Paciente
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

@@ -112,9 +112,9 @@ export default function LoginPage() {
       >
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-xl shadow-blue-200 mb-6 group transition-transform hover:rotate-6">
-            CS
+            EC
           </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">ClinicaSync</h1>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Evoluti Clinic</h1>
           <p className="text-slate-500 font-medium leading-relaxed">
             Gestão clínica inteligente com foco em excelência e rigor terapêutico.
           </p>
@@ -282,7 +282,7 @@ export default function LoginPage() {
 
         <footer className="mt-8 text-center border-t border-slate-100 pt-6">
           <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">
-            &copy; 2024 ClinicaSync Inc.
+            &copy; 2026 EVOLUTICLINIC INC.
           </p>
         </footer>
       </motion.div>

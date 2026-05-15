@@ -191,6 +191,10 @@ export default function AssessmentLibrary() {
 
   const handleGenerateScale = async () => {
     if (!search.trim()) return;
+    if (profile?.role !== 'ADM_SISTEMA') {
+      alert("Apenas administradores do sistema podem gerar novas escalas com IA.");
+      return;
+    }
     setGenerating(true);
     try {
       // In Vite with AI Studio plugin, process.env.GEMINI_API_KEY is replaced at build time
@@ -208,12 +212,15 @@ export default function AssessmentLibrary() {
         5. Forneça instruções BEM DETALHADAS sobre como aplicar e como preencher a escala no campo "instructions".
         6. Explique a forma de scores e interpretação detalhadamente no campo "scoring".
         7. NOVO: No campo "reference", coloque a referência bibliográfica da escala original, idealmente incluindo o link (DOI) ou Pubmed ID.
+        8. CRÍTICO: Não inclua quebras de linha não escapadas dentro de strings JSON. Certifique-se de que o JSON é perfeitamente válido.
         Responda ESTRITAMENTE o formato JSON solicitado, sem markdown ou codeblocks.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
+          temperature: 0.2,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -244,8 +251,32 @@ export default function AssessmentLibrary() {
         }
       });
 
-      const jsonStr = response.text?.trim() || '';
-      const scaleData = JSON.parse(jsonStr) as AssessmentTemplate;
+      let jsonStr = response.text?.trim() || '';
+      if (jsonStr.startsWith('```json')) {
+        jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+      } else if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+      }
+      
+      // Fix unescaped newlines inside strings (common model error)
+      jsonStr = jsonStr.replace(/\\n/g, "\\n")  
+               .replace(/\\'/g, "\\'")
+               .replace(/\\"/g, '\\"')
+               .replace(/\\&/g, "\\&")
+               .replace(/\\r/g, "\\r")
+               .replace(/\\t/g, "\\t")
+               .replace(/\\b/g, "\\b")
+               .replace(/\\f/g, "\\f");
+      // remove non-printable and other non-valid JSON chars
+      jsonStr = jsonStr.replace(/[\u0000-\u0019]+/g,""); 
+
+      let scaleData: AssessmentTemplate;
+      try {
+        scaleData = JSON.parse(jsonStr) as AssessmentTemplate;
+      } catch (parseError) {
+        console.error("JSON Parse Error. Raw string:", jsonStr);
+        throw new Error(`Erro ao interpretar o resultado da IA. Tente novamente. Detalhe: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      }
       
       // Enforce types for safety
       if (scaleData && scaleData.fields) {
@@ -310,7 +341,7 @@ export default function AssessmentLibrary() {
               </div>
             ))}
             
-            {filtered.length === 0 && search.length > 2 && (
+            {filtered.length === 0 && search.length > 2 && profile?.role === 'ADM_SISTEMA' && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}

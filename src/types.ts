@@ -60,6 +60,8 @@ export interface Appointment {
   patientId: string;
   status: 'scheduled' | 'attended' | 'completed' | 'cancelled';
   type?: string;
+  room?: string;
+  duration?: number;
   patientName?: string;
   professionalName?: string;
 }

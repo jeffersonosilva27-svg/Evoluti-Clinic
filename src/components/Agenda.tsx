@@ -229,24 +229,39 @@ export default function Agenda({ selectedClinic }: { selectedClinic: string | nu
                               setShowActionModal(true);
                             }}
                             className={`flex flex-col p-2.5 rounded-2xl shadow-sm border border-slate-100 cursor-pointer transition-all hover:scale-[1.03] hover:shadow-md ${
-                              app.status === 'completed' 
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-100 opacity-60' 
-                              : app.status === 'cancelled'
-                                ? 'bg-slate-100 text-slate-400 border-slate-200 line-through'
-                                : app.professionalId === profile?.uid
-                                  ? 'bg-white text-blue-800 border-blue-100 ring-2 ring-blue-50'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                              app.room === 'Transito'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 opacity-80 border-dashed'
+                                : app.status === 'completed' 
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-100 opacity-60' 
+                                  : app.status === 'cancelled'
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 line-through'
+                                    : app.professionalId === profile?.uid
+                                      ? 'bg-white text-blue-800 border-blue-100 ring-2 ring-blue-50'
+                                      : 'bg-slate-50 text-slate-600 border-slate-200'
                             }`}
                           >
-                            <div className="text-[10px] font-black leading-tight truncate">{app.patientName}</div>
+                            <div className="text-[10px] font-black leading-tight truncate">
+                              {app.room === 'Transito' ? app.type : app.patientName}
+                            </div>
+                            {app.room && app.room !== 'Transito' && (
+                              <div className="text-[8px] font-bold text-slate-500 mt-0.5 truncate uppercase">
+                                {app.room === 'Domiciliar' ? (
+                                  <span className="text-amber-600">🏠 Domiciliar (±1h)</span>
+                                ) : (
+                                  <>📍 {app.room.split(' ')[0]}</>
+                                )}
+                              </div>
+                            )}
                             <div className="flex items-center justify-between mt-2">
                               <div className="flex items-center gap-1 text-[9px] font-bold opacity-60">
                                 <Clock className="w-2.5 h-2.5" />
                                 <span>{format(app.date.toDate(), 'HH:mm')}</span>
                               </div>
-                              <div className={`w-1.5 h-1.5 rounded-full ${
-                                app.status === 'attended' ? 'bg-emerald-500' : 'bg-brand-primary'
-                              }`} />
+                              {app.room !== 'Transito' && (
+                                <div className={`w-1.5 h-1.5 rounded-full ${
+                                  app.status === 'attended' ? 'bg-emerald-500' : 'bg-brand-primary'
+                                }`} />
+                              )}
                             </div>
                           </div>
                         ))
