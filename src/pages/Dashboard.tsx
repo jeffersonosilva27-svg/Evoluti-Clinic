@@ -146,124 +146,127 @@ export default function Dashboard() {
         </p>
       </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {cards.map((card, i) => (
-          <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] hover:shadow-lg transition-all group">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{card.label}</p>
-                <p className="text-3xl font-extrabold text-slate-800 mt-2 flex items-baseline gap-1">
+      {/* Bento Layout Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6 auto-rows-[minmax(140px,auto)]">
+        
+        {/* Stats Blocks - First row in desktop */}
+        {cards.map((card, i) => {
+          const isPrimary = card.color === 'blue';
+          const bgClass = isPrimary 
+            ? 'bg-brand-primary text-white shadow-xl shadow-brand-primary/20'
+            : card.color === 'indigo' ? 'bg-indigo-50 border border-indigo-100/50 text-indigo-900'
+            : card.color === 'amber' ? 'bg-amber-50 border border-amber-100/50 text-amber-900'
+            : 'bg-emerald-50 border border-emerald-100/50 text-emerald-900';
+
+          const iconClass = isPrimary 
+            ? 'bg-white/20 text-white'
+            : card.color === 'indigo' ? 'bg-indigo-100 text-indigo-600'
+            : card.color === 'amber' ? 'bg-amber-100 text-amber-600'
+            : 'bg-emerald-100 text-emerald-600';
+
+          const textClass = isPrimary ? 'text-white/80' : 'text-slate-500';
+
+          return (
+            <div key={i} className={`md:col-span-6 xl:col-span-3 rounded-[2rem] p-6 flex flex-col justify-between transition-transform hover:-translate-y-1 ${bgClass}`}>
+              <div className="flex justify-between items-start">
+                <div className={`p-3 rounded-2xl ${iconClass}`}>
+                  <card.icon className="w-6 h-6" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${textClass}`}>{card.label}</p>
+                <p className="text-4xl font-black mt-1 flex items-baseline gap-1 tracking-tighter">
                   {card.value}
-                  {card.label === 'Sessões / Mês' && <span className="text-sm font-bold text-slate-400">/mês</span>}
+                  {card.label.includes('Mês') && <span className={`text-sm font-bold opacity-60 ml-1`}>/mês</span>}
                 </p>
               </div>
-              <div className={`p-2.5 rounded-xl transition-colors ${
-                card.color === 'blue' ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' :
-                card.color === 'indigo' ? 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white' :
-                card.color === 'amber' ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white' :
-                'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white'
-              }`}>
-                <card.icon className="w-5 h-5" />
-              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          );
+        })}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Upcoming Appointments */}
-        <div className="order-1 lg:order-1 space-y-6 lg:col-span-2">
-          <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-3 border-b border-slate-200 pb-4">
-            <div className="w-8 h-8 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary">
-              <Calendar className="w-4 h-4" />
-            </div>
-            Próximos Atendimentos
-          </h3>
-          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-sm">
+        {/* Action / Upcoming Appointments Block */}
+        <div className="md:col-span-12 xl:col-span-8 bg-white rounded-[2rem] border border-slate-200 p-6 lg:p-8 flex flex-col shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-black text-slate-800 flex items-center gap-3 tracking-tight">
+              <div className="w-10 h-10 bg-brand-primary/10 rounded-xl flex items-center justify-center text-brand-primary">
+                <Calendar className="w-5 h-5" />
+              </div>
+              Próximos Atendimentos Hoje
+            </h3>
+          </div>
+          
+          <div className="flex-1 overflow-hidden flex flex-col gap-3">
             {upcomingAppointments.length > 0 ? upcomingAppointments.map((app, i) => (
-              <div key={app.id} className="p-5 flex gap-4 hover:bg-slate-50/30 transition-colors cursor-pointer group">
-                <div className="relative flex flex-col items-center">
-                  <div className="w-2 h-2 rounded-full bg-brand-primary ring-4 ring-brand-primary/20 mt-1.5 group-hover:bg-indigo-500 group-hover:ring-indigo-100 transition-colors" />
-                  {i < upcomingAppointments.length - 1 && <div className="absolute top-5 left-1/2 -translate-x-1/2 w-0.5 h-full bg-slate-100" />}
+              <div key={app.id} className="bg-slate-50 hover:bg-slate-100/80 transition-colors p-4 rounded-3xl flex items-center gap-4 cursor-pointer group"
+                onClick={() => handleViewConduct(app)}
+              >
+                <div className="bg-white w-14 h-14 rounded-2xl flex flex-col items-center justify-center shadow-sm border border-slate-200/60 shrink-0">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Hoje</span>
+                  <span className="text-sm font-black text-brand-primary leading-none">{format(app.date.toDate(), 'HH:mm')}</span>
                 </div>
-                <div className="flex-1 w-0">
-                  <div className="flex justify-between items-start gap-2">
-                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight truncate group-hover:text-brand-primary transition-colors">{app.patientName}</p>
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md whitespace-nowrap">
-                      {format(app.date.toDate(), 'HH:mm')}
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-base font-black text-slate-800 truncate group-hover:text-brand-primary transition-colors">{app.patientName}</h4>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                      {app.type}
                     </span>
+                    {profile?.role !== 'PROFISSIONAL' && (
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">
+                        Dr(a) {app.professionalName.split(' ')[0]}
+                      </span>
+                    )}
                   </div>
-                  <div 
-                    className="mt-2 bg-slate-50 border border-slate-100 p-3 rounded-xl hover:border-brand-primary/30 transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleViewConduct(app);
-                    }}
-                  >
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                      <span className="text-brand-primary uppercase tracking-widest font-black text-[10px] block mb-1">Ver Conduta</span> 
-                      <span className="italic text-slate-600 block">{app.type}</span>
-                    </p>
+                </div>
+                <div className="pr-4 hidden sm:block">
+                  <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:border-brand-primary group-hover:text-brand-primary transition-all">
+                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-primary" />
                   </div>
-                  {profile?.role !== 'PROFISSIONAL' && (
-                    <p className="text-[9px] text-slate-400 mt-2 uppercase font-bold tracking-widest">
-                      Profissional: {app.professionalName}
-                    </p>
-                  )}
                 </div>
               </div>
             )) : (
-              <div className="p-8 text-center text-slate-400">
-                <Calendar className="w-8 h-8 mx-auto mb-3 opacity-20" />
-                <p className="text-sm font-bold">Agenda livre</p>
-                <p className="text-[10px] uppercase tracking-widest mt-1">Nenhum atendimento em breve.</p>
+              <div className="flex-1 flex flex-col justify-center items-center p-8 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                <Calendar className="w-10 h-10 mx-auto mb-4 text-slate-300" />
+                <p className="text-base font-black text-slate-600">Agenda livre</p>
+                <p className="text-xs text-slate-400 font-medium uppercase tracking-widest mt-1 max-w-[200px]">Nenhum atendimento programado para as próximas horas.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Reassessment Alerts */}
-        <div className="order-2 lg:order-2 lg:col-span-1 space-y-6 border-t lg:border-t-0 lg:border-l border-slate-100 pt-8 lg:pt-0 lg:pl-8">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-            <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-3">
-              <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center text-amber-500">
-                <ClipboardCheck className="w-4 h-4" />
+        {/* Reassessment Alerts Block */}
+        <div className="md:col-span-12 xl:col-span-4 bg-slate-800 rounded-[2rem] p-6 lg:p-8 flex flex-col shadow-xl flex-1 text-white">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-black flex items-center gap-3 tracking-tight">
+              <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-400">
+                <AlertCircle className="w-5 h-5" />
               </div>
               Reavaliações
             </h3>
           </div>
           
-          <div className="grid gap-3">
+          <div className="flex-1 flex flex-col gap-3">
             {alerts.length > 0 ? alerts.map((patient) => (
-              <div key={patient.id} className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between group cursor-pointer hover:border-brand-primary/30 transition-all hover:bg-slate-50/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-black border-2 border-white shadow-sm">
-                    {patient.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-slate-800 text-sm group-hover:text-brand-primary transition-colors">{patient.name}</h4>
-                    <p className="text-[10px] uppercase font-bold text-slate-400 mt-0.5 tracking-tighter">
-                      Última avaliação: {patient.lastAssessmentAt ? format(patient.lastAssessmentAt.toDate(), "P", { locale: ptBR }) : 'Nunca registrada'}
-                    </p>
-                  </div>
+              <div key={patient.id} className="bg-slate-700/50 hover:bg-slate-700 transition-colors p-4 rounded-3xl flex items-center gap-4 cursor-pointer group">
+                <div className="w-12 h-12 rounded-2xl bg-amber-400 text-amber-950 flex items-center justify-center text-sm font-black shrink-0 shadow-inner">
+                  {patient.name.charAt(0)}
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="px-3 py-1 bg-amber-50 text-amber-600 text-[10px] font-black rounded-full border border-amber-100 uppercase tracking-widest">
-                    Vencido
-                  </span>
-                  <div className="p-2 hover:bg-white rounded-lg transition-colors shadow-sm">
-                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-brand-primary" />
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-extrabold text-white text-sm truncate">{patient.name}</h4>
+                  <p className="text-[10px] uppercase font-bold text-amber-200/70 mt-0.5 tracking-widest truncate">
+                    {patient.lastAssessmentAt ? `Última: ${format(patient.lastAssessmentAt.toDate(), "dd/MM/yy")}` : 'Nunca avaliado'}
+                  </p>
+                </div>
+                <div className="bg-slate-800 p-2 rounded-xl group-hover:bg-amber-400 group-hover:text-amber-950 transition-colors">
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-950" />
                 </div>
               </div>
             )) : (
-              <div className="p-12 text-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mx-auto mb-4 shadow-sm">
-                  <ClipboardCheck className="w-6 h-6 text-slate-300" />
+              <div className="flex-1 flex flex-col justify-center items-center p-8 text-center bg-slate-700/30 rounded-3xl border-2 border-dashed border-slate-600/50">
+                <div className="w-12 h-12 bg-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <ClipboardCheck className="w-6 h-6 text-emerald-400" />
                 </div>
-                <p className="text-slate-400 text-sm font-bold">Nenhum paciente pendente</p>
-                <p className="text-slate-400 text-[10px] uppercase font-black tracking-widest mt-1">Tudo em dia com as evoluções</p>
+                <p className="text-white text-sm font-black">Tudo em dia!</p>
+                <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest mt-1 max-w-[150px]">Nenhuma reavaliação pendente no momento.</p>
               </div>
             )}
           </div>
