@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   Calendar, 
@@ -12,7 +12,8 @@ import {
   ClipboardList,
   Building2,
   DollarSign,
-  UserCog
+  UserCog,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clinic } from '../types';
@@ -38,6 +39,29 @@ export default function Layout({
 }: LayoutProps) {
   const { profile, logout, testRole, setTestRole } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart2, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
@@ -106,6 +130,16 @@ export default function Layout({
                 <LogOut className="w-4 h-4" />
                 <span>Encerrar Sessão</span>
               </button>
+              
+              {deferredPrompt && (
+                <button 
+                  onClick={handleInstallClick}
+                  className="w-full mt-3 flex items-center gap-3 px-4 py-2 text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/20 rounded-lg transition-all text-sm font-bold shadow-inner"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Instalar Aplicativo</span>
+                </button>
+              )}
             </div>
           </motion.aside>
         )}
@@ -161,6 +195,16 @@ export default function Layout({
           </div>
 
           <div className="flex items-center gap-2">
+            {deferredPrompt && (
+              <button 
+                onClick={handleInstallClick}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-primary/10 text-brand-primary rounded-lg text-[10px] font-bold hover:bg-brand-primary/20 transition-all border border-brand-primary/20"
+                title="Instalar Aplicativo"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Instalar</span>
+              </button>
+            )}
             {profile?.role !== 'PROFISSIONAL' && (
               <button 
                 onClick={onNewAppointment}
