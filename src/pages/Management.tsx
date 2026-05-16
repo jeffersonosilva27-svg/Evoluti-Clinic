@@ -69,7 +69,7 @@ export default function Management({
     let clinicsQuery = query(collection(db, "clinics"));
     let usersQuery = query(collection(db, "users"));
 
-    if (profile.role !== "ADM_SISTEMA") {
+    if (profile.role !== "ADM_SISTEMA" && profile.role !== "SUPER_GESTOR") {
       if (profile.clinics && profile.clinics.length > 0) {
         const clinicIds = profile.clinics.slice(0, 10);
         clinicsQuery = query(
@@ -388,17 +388,17 @@ export default function Management({
                       <div className="flex flex-col items-start gap-1">
                         <span
                           className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
-                            prof.role === "ADM_SISTEMA"
-                              ? "bg-purple-50 text-purple-600 border-purple-100"
+                            ['ADM_SISTEMA', 'SUPER_GESTOR'].includes(prof.role)
+                              ? "bg-slate-900 text-white border-slate-900"
                               : prof.role === "GESTOR"
-                                ? "bg-blue-50 text-blue-600 border-blue-100"
+                                ? "bg-teal-50 text-teal-600 border-teal-100"
                                 : prof.role === "RECEPCIONISTA"
                                   ? "bg-orange-50 text-orange-600 border-orange-100"
                                   : "bg-slate-50 text-slate-500 border-slate-200"
                           }`}
                         >
-                          {prof.role === "ADM_SISTEMA"
-                            ? "ADM DE SISTEMA"
+                          {['ADM_SISTEMA', 'SUPER_GESTOR'].includes(prof.role)
+                            ? "ADM SISTEMA"
                             : prof.role.replace("_", " ")}
                         </span>
                         <div className="mt-1 flex items-center gap-2">

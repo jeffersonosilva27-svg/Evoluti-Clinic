@@ -32,19 +32,21 @@ export default function NewFinancialRecordModal({ isOpen, onClose }: NewFinancia
       const cq = query(collection(db, 'clinics'));
       const cSnap = await getDocs(cq);
       const allClinics = cSnap.docs.map(d => ({ id: d.id, ...d.data() } as Clinic));
-      const filteredClinics = allClinics.filter(c => profile.role === 'ADM_SISTEMA' || profile.clinics.includes(c.id));
+      const filteredClinics = allClinics.filter(c => profile.role === 'ADM_SISTEMA' || profile.role === 'SUPER_GESTOR' || profile.clinics.includes(c.id));
       setClinics(filteredClinics);
 
       // Fetch Patients
-      if (profile.role !== 'ADM_SISTEMA' && (!profile.clinics || profile.clinics.length === 0)) {
+      if (profile.role !== 'ADM_SISTEMA' && profile.role !== 'SUPER_GESTOR' && (!profile.clinics || profile.clinics.length === 0)) {
         setPatients([]);
       } else {
         let pq = query(collection(db, 'patients'));
-        if (profile.role !== 'ADM_SISTEMA') {
+        if (profile.role !== 'ADM_SISTEMA' && profile.role !== 'SUPER_GESTOR') {
           pq = query(pq, where('clinicId', 'in', profile.clinics));
         }
         const pSnap = await getDocs(pq);
-        setPatients(pSnap.docs.map(d => ({ id: d.id, ...d.data() } as Patient)));
+        const patientsData = pSnap.docs.map(d => ({ id: d.id, ...d.data() } as Patient));
+        patientsData.sort((a, b) => a.name.localeCompare(b.name));
+        setPatients(patientsData);
       }
 
       if (filteredClinics.length === 1) {

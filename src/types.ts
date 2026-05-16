@@ -1,4 +1,4 @@
-export type UserRole = 'ADM_SISTEMA' | 'GESTOR' | 'PROFISSIONAL' | 'RECEPCIONISTA' | 'PENDING';
+export type UserRole = 'ADM_SISTEMA' | 'SUPER_GESTOR' | 'GESTOR' | 'PROFISSIONAL' | 'RECEPCIONISTA' | 'PENDING';
 
 export interface UserProfile {
   uid: string;

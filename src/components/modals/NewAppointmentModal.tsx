@@ -39,28 +39,31 @@ export default function NewAppointmentModal({ isOpen, onClose }: NewAppointmentM
       const cq = query(collection(db, 'clinics'));
       const cSnap = await getDocs(cq);
       const allClinics = cSnap.docs.map(d => ({ id: d.id, ...d.data() } as Clinic));
-      const filteredClinics = allClinics.filter(c => profile.role === 'ADM_SISTEMA' || profile.clinics.includes(c.id));
+      const filteredClinics = allClinics.filter(c => profile.role === 'ADM_SISTEMA' || profile.role === 'SUPER_GESTOR' || profile.clinics.includes(c.id));
       setClinics(filteredClinics);
 
       // Fetch Patients
-      if (profile.role !== 'ADM_SISTEMA' && (!profile.clinics || profile.clinics.length === 0)) {
+      if (profile.role !== 'ADM_SISTEMA' && profile.role !== 'SUPER_GESTOR' && (!profile.clinics || profile.clinics.length === 0)) {
         setPatients([]);
       } else {
         let pq = query(collection(db, 'patients'));
-        if (profile.role !== 'ADM_SISTEMA') {
+        if (profile.role !== 'ADM_SISTEMA' && profile.role !== 'SUPER_GESTOR') {
           pq = query(pq, where('clinicId', 'in', profile.clinics));
         }
         const pSnap = await getDocs(pq);
-        setPatients(pSnap.docs.map(d => ({ id: d.id, ...d.data() } as Patient)));
+        const patientsData = pSnap.docs.map(d => ({ id: d.id, ...d.data() } as Patient));
+        patientsData.sort((a, b) => a.name.localeCompare(b.name));
+        setPatients(patientsData);
       }
 
       // Fetch Professionals
-      let uq = query(collection(db, 'users'), where('role', 'in', ['PROFISSIONAL', 'GESTOR', 'ADM_SISTEMA']));
+      let uq = query(collection(db, 'users'), where('role', 'in', ['PROFISSIONAL', 'GESTOR']));
       const uSnap = await getDocs(uq);
       const allUsers = uSnap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
       
       const filteredUsers = allUsers.filter(u => {
-        if (profile.role === 'ADM_SISTEMA') return true;
+        if (u.role === 'ADM_SISTEMA') return false;
+        if (profile.role === 'ADM_SISTEMA' || profile.role === 'SUPER_GESTOR') return true;
         return u.clinics.some(c => profile.clinics.includes(c));
       });
       setProfessionals(filteredUsers);

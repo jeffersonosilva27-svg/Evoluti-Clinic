@@ -13,7 +13,9 @@ import {
   Dumbbell,
   Trash2,
   Edit2,
-  Sparkles
+  Sparkles,
+  Info,
+  Activity
 } from 'lucide-react';
 import { doc, onSnapshot, collection, addDoc, query, where, orderBy, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -22,27 +24,30 @@ import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-export default function PatientDetail({ patientId, onBack }: { patientId: string, onBack: () => void }) {
+export default function PatientDetail({ patientId, onBack, onNavigateToAssessments }: { patientId: string, onBack: () => void, onNavigateToAssessments?: () => void }) {
   const { profile } = useAuth();
   const [patient, setPatient] = useState<Patient | null>(null);
   const isReceptionist = profile?.role === 'RECEPCIONISTA';
   
-  const defaultTab = isReceptionist ? 'reports' : 'evolution';
-  const [activeTab, setActiveTab] = useState<'evolution' | 'history' | 'assessments' | 'condutas' | 'reports'>(defaultTab);
+  const defaultTab = isReceptionist ? 'reports' : 'history';
+  const [activeTab, setActiveTab] = useState<'history' | 'assessments' | 'condutas' | 'reports'>(defaultTab);
 
   const [evolutions, setEvolutions] = useState<Evolution[]>([]);
   const [soap, setSoap] = useState({ subjective: '', objective: '', assessment: '', plan: '' });
   const [saving, setSaving] = useState(false);
+  const [refiningAI, setRefiningAI] = useState(false);
+  const [aiError, setAiError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [isMyPatient, setIsMyPatient] = useState(false);
 
   useEffect(() => {
-    if (profile?.role === 'PROFISSIONAL') {
+    if (profile?.role === 'PROFISSIONAL' && patient) {
       const checkAppointments = async () => {
         try {
           const q = query(
             collection(db, 'appointments'),
             where('patientId', '==', patientId),
+            where('clinicId', '==', patient.clinicId),
             where('professionalId', '==', profile.uid)
           );
           const snap = await getDocs(q);
@@ -55,7 +60,7 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
     } else {
       setIsMyPatient(true);
     }
-  }, [profile, patientId]);
+  }, [profile, patientId, patient]);
 
   // Exercicio / Conduta states
 
@@ -80,15 +85,6 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
       if (snap.exists()) setPatient({ id: snap.id, ...snap.data() } as Patient);
     }, (err) => console.error(err));
 
-    const qEvolutions = query(
-      collection(db, 'evolutions'),
-      where('patientId', '==', patientId),
-      orderBy('date', 'desc')
-    );
-    const unsubEvolutions = onSnapshot(qEvolutions, (snap) => {
-      setEvolutions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Evolution)));
-    }, (err) => console.error(err));
-
     const getExercisesDb = async () => {
       const snap = await getDocs(query(collection(db, 'exercises')));
       setExerciseDb(snap.docs.map(d => ({ id: d.id, ...d.data() } as Exercise)));
@@ -102,10 +98,24 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
 
     return () => {
       unsubPatient();
-      unsubEvolutions();
       unsubPatientExercises();
     };
   }, [patientId]);
+
+  useEffect(() => {
+    if (!patient?.clinicId) return;
+    const qEvolutions = query(
+      collection(db, 'evolutions'),
+      where('patientId', '==', patientId),
+      where('clinicId', '==', patient.clinicId),
+      orderBy('date', 'desc')
+    );
+    const unsubEvolutions = onSnapshot(qEvolutions, (snap) => {
+      setEvolutions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Evolution)));
+    }, (err) => console.error(err));
+
+    return () => unsubEvolutions();
+  }, [patientId, patient?.clinicId]);
 
   const handleSaveConduta = async () => {
     setSaving(true);
@@ -150,6 +160,56 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
     }
   };
 
+  const handleRefineWithAI = async () => {
+    if (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan) return;
+    setRefiningAI(true);
+    setAiError('');
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
+      
+      const prompt = `Você é um assistente clínico. Organize e refine o seguinte texto da evolução usando a metodologia SOAP (Subjetivo, Objetivo, Avaliação, Plano).
+Apenas melhore a gramática, ortografia, a coesão profissional, clareza e estrutura (em português). 
+REGRA CRÍTICA E INQUEBRÁVEL: NUNCA inferir ou adicionar condutas, relatos, sensações, parâmetros, tratamentos ou características que não tenham sido estritamente declaradas na evolução. Apenas refine o que foi providenciado. Retorne APENAS um JSON estrito com as chaves: "subjective", "objective", "assessment", "plan" com os textos.
+
+Texto Original:
+Subjetivo: ${soap.subjective}
+Objetivo: ${soap.objective}
+Avaliação: ${soap.assessment}
+Plano e Conduta: ${soap.plan}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      
+      if (response.text) {
+         try {
+             // sanitize in case markdown blocks code output
+             const cleanJsonString = response.text.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
+             const refinedText = JSON.parse(cleanJsonString);
+             setSoap({
+                subjective: refinedText.subjective || soap.subjective,
+                objective: refinedText.objective || soap.objective,
+                assessment: refinedText.assessment || soap.assessment,
+                plan: refinedText.plan || soap.plan
+             });
+         } catch (e) {
+             console.error("Failed to parse JSON", e);
+             setAiError("Não foi possível processar a resposta da IA.");
+         }
+      }
+    } catch (err) {
+      console.error(err);
+      setAiError("Ocorreu um erro ao refinar o texto.");
+    } finally {
+      setRefiningAI(false);
+    }
+  };
+
   const handleSaveEvolution = async () => {
     if (!profile || !patient) return;
     setSaving(true);
@@ -178,17 +238,17 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
   if (!patient) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-6">
-        <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-slate-800 transition-all font-black text-[10px] uppercase tracking-widest">
+    <div className="space-y-10 max-w-7xl mx-auto pb-12">
+      <div className="flex items-center justify-between print:hidden">
+        <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-slate-800 transition-all font-black text-[10px] uppercase tracking-widest bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-full">
           <ArrowLeft className="w-4 h-4" />
-          Voltar para Lista
+          Voltar
         </button>
         <div className="flex gap-3">
           <button 
             onClick={exportPDF}
             disabled={exporting}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-brand-primary hover:border-brand-primary transition-all shadow-sm disabled:opacity-50"
           >
             {exporting ? <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             Exportar PDF
@@ -196,415 +256,458 @@ export default function PatientDetail({ patientId, onBack }: { patientId: string
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        {/* Left Column: Patient Info */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm text-center">
-            <div className="w-24 h-24 bg-brand-primary rounded-[24px] mx-auto mb-6 flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-brand-primary/20 transform -rotate-3 group-hover:rotate-0 transition-transform">
-              {patient.name.charAt(0)}
-            </div>
-            <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight">{patient.name}</h2>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-2">REF: {patient.id.substring(0,8)}</p>
-            
-            <div className="mt-8 space-y-5 text-left bg-slate-50 p-5 rounded-2xl border border-slate-100">
-              <div className="flex items-center gap-3 text-slate-500">
-                <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                  <Phone className="w-3.5 h-3.5 text-brand-primary" />
-                </div>
-                <span className="text-[11px] font-black">{patient.phone}</span>
-              </div>
-              <div className="flex items-center gap-3 text-slate-500">
-                <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                  <Mail className="w-3.5 h-3.5 text-brand-primary" />
-                </div>
-                <span className="text-[11px] font-black truncate">{patient.email}</span>
-              </div>
-              <div className="flex items-center gap-3 text-slate-500">
-                <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                  <Calendar className="w-3.5 h-3.5 text-brand-primary" />
-                </div>
-                <span className="text-[11px] font-black uppercase">{patient.birthDate || 'Não informado'}</span>
-              </div>
-              <div className="pt-2 mt-2 border-t border-slate-200/50">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Serviço Contratado</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-extrabold text-slate-700">{patient.serviceType || '---'}</span>
-                  <span className="text-[11px] font-black text-emerald-600">R$ {patient.serviceValue?.toFixed(2) || '0,00'}</span>
-                </div>
-              </div>
-            </div>
+      {/* Hero Header - Logic of Importance: Patient identity is #1 */}
+      <div className="flex flex-col lg:flex-row gap-8 items-start justify-between">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 flex-1">
+          <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 bg-brand-primary text-white rounded-[32px] flex items-center justify-center text-5xl font-black shadow-2xl shadow-brand-primary/20 transform -rotate-3 transition-transform hover:rotate-0">
+            {patient.name.charAt(0)}
           </div>
-
-          <div className="bg-sidebar-bg p-8 rounded-[32px] text-white shadow-xl">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-6 flex items-center gap-3">
-              <ClipboardCheck className="w-4 h-4 text-brand-primary" /> Status Clínico
-            </h3>
-            <div className="space-y-6">
-              <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Última Reavaliação</p>
-                <p className="text-sm font-black">{patient.lastAssessmentAt ? format(patient.lastAssessmentAt.toDate(), "P", { locale: ptBR }) : 'Pendente'}</p>
-              </div>
-              <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Índice Evolutivo</p>
-                <div className="flex items-end justify-between">
-                  <p className="text-sm font-black text-brand-primary">{patient.sessionCountSinceAssessment} / 10</p>
-                  <p className="text-[10px] font-bold text-slate-400">Sessões</p>
-                </div>
-                <div className="w-full bg-white/10 h-1 rounded-full mt-3 overflow-hidden">
-                  <div 
-                    className="bg-brand-primary h-full transition-all duration-1000" 
-                    style={{ width: `${Math.min((patient.sessionCountSinceAssessment / 10) * 100, 100)}%` }} 
-                  />
-                </div>
-              </div>
+          <div className="mt-2 space-y-4">
+            <div>
+              <p className="text-[10px] font-black text-brand-primary uppercase tracking-[0.2em] mb-2 border border-brand-primary/20 bg-brand-primary/5 px-3 py-1 rounded-full w-fit mx-auto sm:mx-0">
+                {patient.serviceType || 'Paciente'}
+              </p>
+              <h1 className="text-4xl sm:text-5xl font-black text-slate-800 tracking-tight leading-none">{patient.name}</h1>
+            </div>
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 sm:gap-6 text-xs font-bold text-slate-500 uppercase tracking-widest">
+              {patient.phone && <span className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-slate-400"/> {patient.phone}</span>}
+              {patient.email && <span className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-slate-400"/> {patient.email}</span>}
+              {patient.birthDate && <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-slate-400"/> {patient.birthDate}</span>}
             </div>
           </div>
         </div>
 
-        {/* Right Column: Work Area */}
-        <div className="lg:col-span-3 space-y-6" id="patient-report-area">
-          <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200 shadow-inner overflow-x-auto print:hidden">
-            {[
-              { id: 'evolution', label: 'Evolução', icon: FileText, hideForReceptionist: true },
-              { id: 'history', label: 'Histórico', icon: History, hideForReceptionist: true },
-              { id: 'condutas', label: 'Condutas', icon: Dumbbell, hideForReceptionist: true },
-              { id: 'assessments', label: 'Avaliações', icon: ClipboardCheck, hideForReceptionist: true },
-              { id: 'reports', label: 'Relatórios / Declaração', icon: Download, hideForReceptionist: false },
-            ]
-            .filter(tab => !(isReceptionist && tab.hideForReceptionist))
-            .map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                  activeTab === tab.id 
-                  ? 'bg-white text-brand-primary shadow-lg shadow-brand-primary/5' 
-                  : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <tab.icon className="w-3.5 h-3.5" />
-                {tab.label}
-              </button>
-            ))}
+        {/* Vital Stats - Logic of Importance: Status is #2 */}
+        <div className="bg-slate-900 rounded-[32px] p-8 w-full lg:w-[360px] shrink-0 text-white shadow-xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10 transition-transform group-hover:scale-110" />
+          
+          <div className="relative z-10 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-400" />
+                Status Clínico
+              </h3>
+              <p className="text-xs font-black text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-md">
+                R$ {patient.serviceValue?.toFixed(2) || '0,00'}
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-end justify-between mb-3">
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Evoluções / Avaliação</p>
+                  <p className="text-4xl font-black">{patient.sessionCountSinceAssessment} <span className="text-lg text-slate-600">/ 10</span></p>
+                </div>
+              </div>
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-emerald-400 h-full transition-all duration-1000 ease-out" 
+                  style={{ width: `${Math.min((patient.sessionCountSinceAssessment / 10) * 100, 100)}%` }} 
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-500 uppercase tracking-widest text-[9px]">Última Reavaliação</span>
+              <span className="font-black">
+                {patient.lastAssessmentAt ? format(patient.lastAssessmentAt.toDate(), "dd MMM, yyyy", { locale: ptBR }) : 'Pendente'}
+              </span>
+            </div>
           </div>
+        </div>
+      </div>
 
-          <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden min-h-[600px]">
-            {activeTab === 'reports' && (
-              <div className="p-10 space-y-8">
-                <div className="border-b border-slate-100 pb-6 text-center">
-                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">Declaração de Comparecimento / Relatório</h3>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2">{patient.name}</p>
-                </div>
-                <div className="space-y-6 text-slate-700 leading-relaxed font-medium">
-                  <p>
-                    Declaramos para os devidos fins que o(a) paciente <strong>{patient.name}</strong>, 
-                    inscrito(a) no serviço de <strong>{patient.serviceTypes?.join(', ') || patient.serviceType}</strong>, 
-                    está em acompanhamento nesta unidade.
-                  </p>
-                  <p>
-                    Sessões contabilizadas desde a última avaliação: <strong>{patient.sessionCountSinceAssessment}</strong>
-                  </p>
-                  <br/><br/><br/>
-                  <div className="text-center space-y-2 max-w-xs mx-auto">
-                    <div className="border-t border-slate-300 w-full" />
-                    <p className="text-xs font-bold uppercase text-slate-500">Assinatura / Carimbo</p>
-                    <p className="text-[10px] text-slate-400">Data e Hora de Impressão: {new Date().toLocaleString('pt-BR')}</p>
-                  </div>
-                </div>
+      {/* Tabs Menu */}
+      <div className="flex items-center justify-start border-b-2 border-slate-100 print:hidden overflow-x-auto hide-scrollbar">
+        {[
+          { id: 'history', label: 'Evoluções', icon: History, hideForReceptionist: true },
+          { id: 'condutas', label: 'Condutas Prescritas', icon: Dumbbell, hideForReceptionist: true },
+          { id: 'assessments', label: 'Avaliações', icon: ClipboardCheck, hideForReceptionist: true },
+          { id: 'reports', label: 'Relatórios & Docs', icon: FileText, hideForReceptionist: false },
+        ]
+        .filter(tab => !(isReceptionist && tab.hideForReceptionist))
+        .map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2.5 px-6 py-4 text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-b-2 -mb-[2px] ${
+              activeTab === tab.id 
+              ? 'border-brand-primary text-brand-primary' 
+              : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+            }`}
+          >
+            <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-brand-primary' : 'text-slate-400'}`} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content Area */}
+      <div className="min-h-[500px]">
+        {activeTab === 'reports' && (
+          <div className="bg-white rounded-[32px] p-10 md:p-16 border border-slate-200 shadow-sm max-w-4xl mx-auto space-y-12">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <FileText className="w-8 h-8 text-slate-300" />
               </div>
-            )}
-            {activeTab === 'evolution' && !isReceptionist && (
-              <div className="p-10 space-y-8">
-                <div className="border-b border-slate-100 pb-6">
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight">Registro de Evolução Diária</h3>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Metodologia SOAP • Registro Individual por Sessão</p>
-                </div>
+              <h3 className="text-3xl font-black text-slate-800 tracking-tight">Declaração de Comparecimento</h3>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Documento Oficial de Registro</p>
+            </div>
+            
+            <div className="space-y-6 text-slate-700 leading-relaxed font-medium text-lg bg-slate-50 p-8 md:p-12 rounded-[24px]">
+              <p>
+                Declaramos para os devidos fins que o(a) paciente <strong className="text-slate-900 border-b-2 border-slate-200 pb-0.5">{patient.name}</strong>, 
+                inscrito(a) no serviço de <strong className="text-slate-900 border-b-2 border-slate-200 pb-0.5">{patient.serviceTypes?.join(', ') || patient.serviceType}</strong>, 
+                está em acompanhamento nesta clínica.
+              </p>
+              <p>
+                As sessões contabilizadas desde a última avaliação somam o total de <strong className="text-brand-primary text-xl px-1">{patient.sessionCountSinceAssessment}</strong> sessões.
+              </p>
+            </div>
 
-                {!isMyPatient ? (
-                  <div className="bg-amber-50 border border-amber-200 text-amber-700 p-6 rounded-2xl text-center">
-                    <p className="font-bold text-sm">Acesso restrito</p>
-                    <p className="text-xs mt-2">Você só pode registrar evoluções para pacientes que possuem agendamento(s) com você.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {[
-                        { key: 'subjective', label: 'Subjetivo', hint: 'Relato do paciente sobre dor, fadiga ou melhora...' },
-                        { key: 'objective', label: 'Objetivo', hint: 'Dados mensuráveis: ADM, força, testes especiais...' },
-                        { key: 'assessment', label: 'Avaliação', hint: 'Análise clínica do progresso e resposta ao tratamento...' },
-                        { key: 'plan', label: 'Plano e Conduta', hint: 'Próximos passos e exercícios prescritos...' },
-                      ].map((field) => (
-                        <div key={field.key} className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{field.label}</label>
-                            <span className="text-[8px] font-black text-brand-primary/40 uppercase">Obrigatório</span>
-                          </div>
-                          <textarea 
-                            className="w-full h-40 p-5 bg-slate-50 border border-slate-200 rounded-3xl focus:ring-4 focus:ring-brand-primary/5 focus:border-brand-primary outline-none text-sm font-bold text-slate-700 transition-all placeholder:text-slate-300 shadow-inner resize-none"
-                            placeholder={field.hint}
-                            value={(soap as any)[field.key]}
-                            onChange={(e) => setSoap({...soap, [field.key]: e.target.value})}
-                          />
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="pt-8 flex justify-end">
-                      <button 
-                        onClick={handleSaveEvolution}
-                        disabled={saving || !soap.subjective}
-                        className="flex items-center gap-3 px-10 py-5 bg-brand-primary text-white rounded-[20px] font-black text-[12px] uppercase tracking-widest hover:brightness-110 transition-all shadow-xl shadow-brand-primary/20 active:scale-95 disabled:opacity-50"
-                      >
-                        <Save className="w-5 h-5" />
-                        Protocolar Evolução
-                      </button>
-                    </div>
-                  </>
-                )}
+            <div className="pt-20">
+              <div className="text-center space-y-3 max-w-[280px] mx-auto">
+                <div className="border-t-2 border-slate-800 w-full" />
+                <p className="text-xs font-black uppercase tracking-widest text-slate-800">Assinatura do Profissional</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-2">Data de Expedição: {format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}</p>
               </div>
-            )}
+            </div>
+          </div>
+        )}
 
-            {activeTab === 'history' && !isReceptionist && (
-              <div className="p-8 space-y-6">
+        {activeTab === 'history' && !isReceptionist && (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-6 rounded-2xl flex gap-4 items-start shadow-sm">
+              <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-black text-sm uppercase tracking-widest mb-1.5">Registro de Evoluções</p>
+                <p className="text-xs font-medium opacity-80 leading-relaxed">O registro de novas evoluções deve ser feito exclusivamente através da Agenda, durante o momento do atendimento do paciente. Aqui consta apenas o histórico consolidado.</p>
+              </div>
+            </div>
+
+            {evolutions.length === 0 ? (
+              <div className="text-center py-20 bg-white border border-slate-200 rounded-[32px] shadow-sm">
+                <History className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                <p className="text-lg font-black text-slate-400 tracking-tight">Nenhuma evolução registrada</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
                 {evolutions.map(ev => (
-                  <div key={ev.id} className="relative pl-8 border-l-2 border-slate-100 pb-8 last:pb-0">
-                    <div className="absolute left-[-9px] top-0 w-4 h-4 bg-white border-2 border-blue-600 rounded-full" />
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <p className="text-sm font-black text-slate-800">{format(ev.date.toDate(), "Pp", { locale: ptBR })}</p>
+                  <div key={ev.id} className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm transition-all hover:shadow-md relative overflow-hidden group">
+                    {(ev as any).deletedAt && (
+                      <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                        <span className="bg-rose-100 text-rose-600 font-black uppercase tracking-widest text-xs px-4 py-2 rounded-xl rotate-12 border border-rose-200 shadow-xl">Deletado</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-6 mb-6">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xl font-black text-slate-800 tracking-tight">{format(ev.date.toDate(), "dd 'de' MMMM, yyyy", { locale: ptBR })}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          {format(ev.date.toDate(), "HH:mm", { locale: ptBR })}
+                        </p>
+                      </div>
+                      
+                      <div className="flex flex-wrap items-center gap-2">
                         {(ev as any).signature && (
-                          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                            Assinado: {(ev as any).signature}
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                            {(ev as any).signature}
                           </span>
                         )}
                         {(ev as any).editedAt && (
-                          <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
                             Editado
                           </span>
                         )}
-                        {(ev as any).deletedAt && (
-                          <span className="text-[9px] font-bold uppercase tracking-widest text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">
-                            Deletado
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {profile?.uid === ev.professionalId && !(ev as any).deletedAt && (
-                          <>
-                            <button className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-indigo-500 transition-colors" title="Editar">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-rose-500 transition-colors" title="Excluir">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
+                        <div className="flex items-center gap-1 ml-2">
+                          {profile?.uid === ev.professionalId && !(ev as any).deletedAt && (
+                            <>
+                              <button className="p-2.5 bg-slate-50 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl text-slate-400 hover:text-indigo-500 transition-all shadow-sm" title="Editar">
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button className="p-2.5 bg-slate-50 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl text-slate-400 hover:text-rose-500 transition-all shadow-sm" title="Excluir">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div className={`bg-slate-50 p-4 rounded-2xl border ${
-                      (ev as any).deletedAt ? 'border-rose-100 bg-rose-50/30 line-through opacity-70' : 'border-slate-100'
-                    }`}>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">S+O</p>
-                          <p className="text-xs text-slate-700 line-clamp-3">{ev.content.subjective} / {ev.content.objective}</p>
+
+                    <div className="space-y-4 text-slate-700">
+                      {ev.content.subjective && (
+                        <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 md:gap-6">
+                          <strong className="text-[10px] font-black uppercase tracking-widest text-slate-400 pt-1">S - Subjetivo</strong>
+                          <p className="text-sm font-medium leading-relaxed">{ev.content.subjective}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">A+P</p>
-                          <p className="text-xs text-slate-700 line-clamp-3">{ev.content.assessment} / {ev.content.plan}</p>
+                      )}
+                      {ev.content.objective && (
+                        <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 md:gap-6 mt-4 pt-4 border-t border-slate-50">
+                          <strong className="text-[10px] font-black uppercase tracking-widest text-slate-400 pt-1">O - Objetivo</strong>
+                          <p className="text-sm font-medium leading-relaxed">{ev.content.objective}</p>
                         </div>
-                      </div>
+                      )}
+                      {ev.content.assessment && (
+                        <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 md:gap-6 mt-4 pt-4 border-t border-slate-50">
+                          <strong className="text-[10px] font-black uppercase tracking-widest text-slate-400 pt-1">A - Avaliação</strong>
+                          <p className="text-sm font-medium leading-relaxed">{ev.content.assessment}</p>
+                        </div>
+                      )}
+                      {ev.content.plan && (
+                        <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 md:gap-6 mt-4 pt-4 border-t border-slate-50">
+                          <strong className="text-[10px] font-black uppercase tracking-widest text-slate-400 pt-1">P - Plano</strong>
+                          <p className="text-sm font-medium leading-relaxed bg-brand-primary/5 p-4 rounded-2xl border border-brand-primary/10">{ev.content.plan}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        )}
 
-            {activeTab === 'assessments' && !isReceptionist && (
-              <div className="p-8 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-800">Avaliações Aplicadas</h3>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all">
-                    <Plus className="w-4 h-4" />
-                    Aplicar Nova Avaliação
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 border border-slate-100 bg-slate-50 rounded-2xl">
-                    <p className="text-sm font-bold text-slate-800">Escala de Equilíbrio de Berg</p>
-                    <p className="text-[10px] text-slate-500 uppercase font-black mt-1">Escore: 52/56</p>
-                    <p className="text-[10px] text-slate-400 mt-2">Aplicado há 31 dias</p>
-                  </div>
-                </div>
+        {activeTab === 'condutas' && !isReceptionist && (
+          <div className="max-w-5xl mx-auto space-y-8">
+            <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-4 sm:p-6 rounded-[32px] border border-slate-200 shadow-sm gap-4">
+              <div>
+                <h3 className="font-black text-slate-800 text-2xl tracking-tight">Condutas Prescritas</h3>
+                <p className="text-xs font-bold text-slate-500 mt-1">Exercícios e orientações para o paciente realizar.</p>
               </div>
-            )}
+              <button 
+                onClick={() => setShowAddConduta(!showAddConduta)}
+                className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-md shrink-0 ${
+                  showAddConduta 
+                  ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' 
+                  : 'bg-brand-primary text-white hover:brightness-110'
+                }`}
+              >
+                {showAddConduta ? 'Fechar Formulário' : <><Plus className="w-4 h-4" /> Nova Prescrição</>}
+              </button>
+            </div>
 
-            {activeTab === 'condutas' && !isReceptionist && (
-              <div className="p-8 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-black text-slate-800 text-xl tracking-tight">Planejamento de Conduta</h3>
-                  <button 
-                    onClick={() => setShowAddConduta(!showAddConduta)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-md"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Prescrever Conduta
-                  </button>
+            {showAddConduta && (
+              <div className="bg-slate-900 text-white p-8 md:p-10 rounded-[32px] shadow-2xl relative overflow-hidden animate-in slide-in-from-top-4 duration-300">
+                <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                  <Dumbbell className="w-64 h-64" />
                 </div>
-
-                {showAddConduta && (
-                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner space-y-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1">
-                            Exercício Terapêutico
-                          </label>
-                          <select 
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none"
-                            value={newConduta.exerciseId}
-                            onChange={(e) => setNewConduta({...newConduta, exerciseId: e.target.value})}
-                          >
-                            <option value="">-- Cadastrar Novo Exercício --</option>
-                            {exerciseDb.filter(ex => ex.serviceType === patient.serviceType).map(ex => (
-                              <option key={ex.id} value={ex.id}>{ex.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        {!newConduta.exerciseId && (
-                          <div className="space-y-4 bg-white p-4 rounded-xl border border-slate-100">
-                            <div>
-                              <div className="flex items-center justify-between">
-                                <label className="block text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1">Nome do Exercício *</label>
-                                {newConduta.customName && !newConduta.customDesc && (
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        setNewConduta({ ...newConduta, customDesc: 'Gerando descrição com IA...' });
-                                        const { GoogleGenAI } = await import('@google/genai');
-                                        const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
-                                        const response = await ai.models.generateContent({
-                                          model: 'gemini-2.5-flash',
-                                          contents: `Forneça uma descrição clínica base e breve (máx 2 linhas) para o exercício de reabilitação/conduta chamado "${newConduta.customName}". Direto ao ponto, sem introdução.`
-                                        });
-                                        setNewConduta({ ...newConduta, customDesc: response.text || '', isAiGenerated: true });
-                                      } catch (err) {
-                                        console.error(err);
-                                        setNewConduta({ ...newConduta, customDesc: '' });
-                                      }
-                                    }}
-                                    className="text-[10px] text-brand-primary font-bold hover:underline flex items-center gap-1"
-                                  >
-                                    <Sparkles className="w-3 h-3" /> Gerar Descrição
-                                  </button>
-                                )}
-                              </div>
-                              <input 
-                                type="text"
-                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-700"
-                                value={newConduta.customName}
-                                onChange={(e) => setNewConduta({...newConduta, customName: e.target.value})}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1 flex items-center gap-2">
-                                Descrição base
-                                {(newConduta as any).isAiGenerated && (
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3" /> IA
-                                  </span>
-                                )}
-                              </label>
-                              <textarea 
-                                rows={2}
-                                className={`w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm font-bold text-slate-700 ${
-                                  (newConduta as any).isAiGenerated ? 'border-brand-primary' : 'border-slate-200'
-                                }`}
-                                value={newConduta.customDesc}
-                                onChange={(e) => setNewConduta({...newConduta, customDesc: e.target.value, isAiGenerated: false})}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1">Parâmetros / Frequência *</label>
-                          <input 
-                            type="text"
-                            placeholder="Ex: 3 séries de 10 reps, diário"
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none"
-                            value={newConduta.frequency}
-                            onChange={(e) => setNewConduta({...newConduta, frequency: e.target.value})}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1">Instruções para o Paciente</label>
-                          <textarea 
-                            rows={3}
-                            placeholder="Observações que aparecerão para o paciente..."
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none"
-                            value={newConduta.instructions}
-                            onChange={(e) => setNewConduta({...newConduta, instructions: e.target.value})}
-                          />
-                        </div>
-                      </div>
+                
+                <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-8 border-b border-slate-800 pb-4">Formulário de Prescrição</h4>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-black tracking-widest uppercase text-slate-400 mb-2">
+                        Selecione o Exercício
+                      </label>
+                      <select 
+                        className="w-full px-5 py-4 bg-slate-800 border border-slate-700 rounded-2xl text-sm font-bold text-white outline-none focus:border-brand-primary transition-colors appearance-none"
+                        value={newConduta.exerciseId}
+                        onChange={(e) => setNewConduta({...newConduta, exerciseId: e.target.value})}
+                      >
+                        <option value="">-- Criar Exercício Personalizado --</option>
+                        {exerciseDb.filter(ex => ex.serviceType === patient.serviceType).map(ex => (
+                          <option key={ex.id} value={ex.id}>{ex.name}</option>
+                        ))}
+                      </select>
                     </div>
                     
-                    <div className="flex justify-end gap-2 pt-4">
-                      <button 
-                        onClick={() => setShowAddConduta(false)}
-                        className="px-6 py-3 border border-slate-200 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveConduta}
-                        disabled={saving || (!newConduta.exerciseId && !newConduta.customName) || !newConduta.frequency}
-                        className="px-6 py-3 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {saving ? 'Salvando...' : 'Salvar Prescrição'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-4">
-                  {patientExercises.length === 0 ? (
-                    <div className="text-center py-12 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
-                      <Dumbbell className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                      <p className="text-sm font-bold text-slate-500">Nenhuma conduta prescrita</p>
-                    </div>
-                  ) : (
-                    patientExercises.map(pe => {
-                      const ex = exerciseDb.find(e => e.id === pe.exerciseId);
-                      return (
-                        <div key={pe.id} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col md:flex-row gap-4 justify-between items-start">
-                          <div>
-                            <h4 className="text-base font-black text-slate-800">{ex?.name || 'Exercício Desconhecido'}</h4>
-                            <p className="text-xs text-slate-500 mt-1 max-w-2xl">{ex?.description}</p>
-                            {pe.instructions && (
-                              <div className="mt-3 p-3 bg-blue-50/50 rounded-xl border border-blue-100/50">
-                                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Instruções Prescritas</p>
-                                <p className="text-xs font-bold text-slate-700">{pe.instructions}</p>
-                              </div>
+                    {!newConduta.exerciseId && (
+                      <div className="space-y-5 bg-slate-800/50 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Novo Exercício Manual</p>
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="block text-[10px] font-black tracking-widest uppercase text-slate-300">Nome do Exercício *</label>
+                            {newConduta.customName && !newConduta.customDesc && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    setNewConduta({ ...newConduta, customDesc: 'Gerando com IA...' });
+                                    const { GoogleGenAI } = await import('@google/genai');
+                                    const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
+                                    const response = await ai.models.generateContent({
+                                      model: 'gemini-2.5-flash',
+                                      contents: `Forneça uma descrição clínica base e breve (máx 2 linhas) para o exercício de reabilitação/conduta chamado "${newConduta.customName}". Direto ao ponto, sem introdução.`
+                                    });
+                                    setNewConduta({ ...newConduta, customDesc: response.text || '', isAiGenerated: true });
+                                  } catch (err) {
+                                    console.error(err);
+                                    setNewConduta({ ...newConduta, customDesc: '' });
+                                  }
+                                }}
+                                className="text-[10px] text-brand-primary font-black uppercase tracking-widest hover:text-emerald-400 transition-colors flex items-center gap-1.5 bg-brand-primary/10 px-3 py-1.5 rounded-full"
+                              >
+                                <Sparkles className="w-3 h-3" /> Auto-Desc
+                              </button>
                             )}
                           </div>
-                          <div className="shrink-0 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 text-right">
-                            <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Frequência/Dose</span>
-                            <span className="text-sm font-bold text-brand-primary">{pe.frequency}</span>
-                          </div>
+                          <input 
+                            type="text"
+                            placeholder="Ex: Agachamento Livre"
+                            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-sm font-bold text-white focus:border-brand-primary transition-colors outline-none"
+                            value={newConduta.customName}
+                            onChange={(e) => setNewConduta({...newConduta, customName: e.target.value})}
+                          />
                         </div>
-                      );
-                    })
-                  )}
+                        <div>
+                          <label className="block text-[10px] font-black tracking-widest uppercase text-slate-300 mb-2 flex items-center gap-2">
+                            Descrição
+                            {(newConduta as any).isAiGenerated && (
+                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-400/20">
+                                <Sparkles className="w-3 h-3" /> Gerado por IA
+                              </span>
+                            )}
+                          </label>
+                          <textarea 
+                            rows={3}
+                            placeholder="Opcional: Descreva como o exercício é realizado."
+                            className={`w-full px-4 py-3 bg-slate-900 border rounded-xl text-sm font-bold text-white outline-none focus:border-brand-primary transition-colors ${
+                              (newConduta as any).isAiGenerated ? 'border-emerald-500/50' : 'border-slate-700'
+                            }`}
+                            value={newConduta.customDesc}
+                            onChange={(e) => setNewConduta({...newConduta, customDesc: e.target.value, isAiGenerated: false})}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-black tracking-widest uppercase text-slate-400 mb-2">Dose / Frequência *</label>
+                      <input 
+                        type="text"
+                        placeholder="Ex: 3 séries de 10 reps, todo dia"
+                        className="w-full px-5 py-4 bg-slate-800 border border-slate-700 rounded-2xl text-sm font-bold text-white outline-none focus:border-brand-primary transition-colors"
+                        value={newConduta.frequency}
+                        onChange={(e) => setNewConduta({...newConduta, frequency: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black tracking-widest uppercase text-slate-400 mb-2">Instruções para o Paciente</label>
+                      <textarea 
+                        rows={4}
+                        placeholder="Recomendações e avisos que o paciente verá no app dele..."
+                        className="w-full px-5 py-4 bg-slate-800 border border-slate-700 rounded-2xl text-sm font-bold text-white outline-none focus:border-brand-primary transition-colors resize-none"
+                        value={newConduta.instructions}
+                        onChange={(e) => setNewConduta({...newConduta, instructions: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex justify-end gap-3 pt-8 mt-8 border-t border-slate-800 relative z-10">
+                  <button 
+                    onClick={() => setShowAddConduta(false)}
+                    className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleSaveConduta}
+                    disabled={saving || (!newConduta.exerciseId && !newConduta.customName) || !newConduta.frequency}
+                    className="px-8 py-4 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50 disabled:bg-slate-700 flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-brand-primary/30"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar Prescrição'}
+                  </button>
                 </div>
               </div>
             )}
+
+            <div className="grid grid-cols-1 gap-4">
+              {patientExercises.length === 0 ? (
+                <div className="text-center py-20 bg-slate-50 rounded-[32px] border-2 border-slate-100 border-dashed max-w-2xl mx-auto w-full">
+                  <Dumbbell className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-lg font-black text-slate-400 tracking-tight">Nenhuma conduta prescrita</p>
+                  <p className="text-sm font-bold text-slate-400 mt-2">Clique em "Nova Prescrição" para começar.</p>
+                </div>
+              ) : (
+                patientExercises.map((pe, index) => {
+                  const ex = exerciseDb.find(e => e.id === pe.exerciseId);
+                  const addedDate = pe.addedAt?.toDate ? format(pe.addedAt.toDate(), "dd.MM.yyyy", { locale: ptBR }) : '';
+                  return (
+                    <div key={pe.id} className="group p-6 md:p-8 bg-white border border-slate-200 rounded-[32px] shadow-sm flex flex-col md:flex-row gap-8 justify-between items-start transition-all hover:shadow-xl hover:-translate-y-1 hover:border-brand-primary/30">
+                      <div className="flex gap-6 items-start flex-1">
+                        <div className="w-16 h-16 shrink-0 bg-slate-50 border border-slate-100 rounded-3xl flex items-center justify-center font-black text-2xl text-slate-300 group-hover:text-brand-primary group-hover:bg-brand-primary/10 transition-colors">
+                          {String(index + 1).padStart(2, '0')}
+                        </div>
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-3 mb-1">
+                              <h4 className="text-2xl font-black text-slate-800 tracking-tight leading-none">{ex?.name || 'Exercício Desconhecido'}</h4>
+                              {addedDate && (
+                                <span className="text-[9px] bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-slate-200 flex items-center gap-1.5">
+                                  <Calendar className="w-3 h-3" />
+                                  Execução: {addedDate}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium text-slate-500 max-w-xl leading-relaxed mt-3">{ex?.description}</p>
+                          </div>
+                          
+                          {pe.instructions && (
+                            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200/50 max-w-xl">
+                              <p className="text-[9px] font-black text-amber-700 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                <Info className="w-3 h-3" />
+                                Orientação ao Paciente
+                              </p>
+                              <p className="text-sm font-bold text-amber-900 leading-relaxed">{pe.instructions}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="shrink-0 w-full md:w-auto bg-slate-900 p-6 rounded-3xl shadow-lg mt-4 md:mt-0 ml-0 md:ml-4 text-center md:text-right flex flex-row md:flex-col justify-between md:justify-center items-center md:items-end min-w-[200px]">
+                        <span className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">DOSE EXATA</span>
+                        <span className="text-xl font-black text-white px-2 max-w-[220px]">{pe.frequency}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'assessments' && !isReceptionist && (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+               <div>
+                  <h3 className="font-black text-slate-800 text-2xl tracking-tight">Avaliações Clínicas</h3>
+                  <p className="text-xs font-bold text-slate-500 mt-1">Escalas e testes aplicados ao paciente.</p>
+               </div>
+              <button 
+                onClick={onNavigateToAssessments}
+                className="flex items-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl hover:-translate-y-0.5"
+              >
+                <Plus className="w-4 h-4" />
+                Nova Avaliação
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Example hardcoded for layout context given the existing code */}
+              <div className="p-8 border border-slate-200 bg-white rounded-[32px] shadow-sm hover:shadow-md transition-shadow group relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                  <ClipboardCheck className="w-24 h-24" />
+                </div>
+                <div className="relative z-10">
+                  <p className="text-xl font-black text-slate-800 tracking-tight leading-tight mb-4">Escala de Equilíbrio de Berg</p>
+                  <div className="flex items-end justify-between border-t border-slate-100 pt-6">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Escore</p>
+                      <p className="text-2xl font-black text-brand-primary">52 <span className="text-sm font-bold text-slate-400">/ 56</span></p>
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                      Há 31 dias
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

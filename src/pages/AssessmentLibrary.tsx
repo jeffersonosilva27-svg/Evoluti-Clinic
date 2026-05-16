@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Info, PlusCircle, CheckCircle2, Sparkles, Loader2, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, Info, PlusCircle, CheckCircle2, Sparkles, Loader2, Trash2, AlertTriangle, ClipboardCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { db } from '../firebase/config';
@@ -135,10 +135,11 @@ const templates: AssessmentTemplate[] = [
   }
 ];
 
-export default function AssessmentLibrary() {
+export default function AssessmentLibrary({ patientId, onBack }: { patientId?: string, onBack?: () => void }) {
   const { profile } = useAuth();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<AssessmentTemplate | null>(null);
+  const [selectedForPatient, setSelectedForPatient] = useState<string[]>([]);
   
   const [dbTemplates, setDbTemplates] = useState<AssessmentTemplate[]>([]);
   const [deletedFixed, setDeletedFixed] = useState<string[]>([]);
@@ -146,19 +147,36 @@ export default function AssessmentLibrary() {
   const [scaleToDelete, setScaleToDelete] = useState<AssessmentTemplate | null>(null);
 
   useEffect(() => {
-    const unsubTemplates = onSnapshot(collection(db, 'assessmentTemplates'), snap => {
-      setDbTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as AssessmentTemplate)));
-    }, (err) => console.error(err));
-    
-    const unsubDeleted = onSnapshot(collection(db, 'deletedAssessmentTemplates'), snap => {
-      setDeletedFixed(snap.docs.map(d => d.id));
-    }, (err) => console.error(err));
+    if (!profile) return;
+
+    const unsubTemplates = onSnapshot(
+      collection(db, "assessmentTemplates"),
+      (snap) => {
+        setDbTemplates(
+          snap.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as AssessmentTemplate,
+          ),
+        );
+      },
+      (err) => console.error("Templates subscription error:", err),
+    );
+
+    let unsubDeleted = () => {};
+    if (["ADM_SISTEMA", "SUPER_GESTOR", "GESTOR"].includes(profile.role)) {
+      unsubDeleted = onSnapshot(
+        collection(db, "deletedAssessmentTemplates"),
+        (snap) => {
+          setDeletedFixed(snap.docs.map((d) => d.id));
+        },
+        (err) => console.error("Deleted templates subscription error:", err),
+      );
+    }
 
     return () => {
       unsubTemplates();
       unsubDeleted();
     };
-  }, []);
+  }, [profile]);
 
   const allTemplates = [...templates.filter(t => !deletedFixed.includes(t.id)), ...dbTemplates];
   const filtered = allTemplates.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
@@ -191,7 +209,7 @@ export default function AssessmentLibrary() {
 
   const handleGenerateScale = async () => {
     if (!search.trim()) return;
-    if (profile?.role !== 'ADM_SISTEMA') {
+    if (profile?.role !== 'ADM_SISTEMA' && profile?.role !== 'SUPER_GESTOR') {
       alert("Apenas administradores do sistema podem gerar novas escalas com IA.");
       return;
     }
@@ -318,18 +336,35 @@ export default function AssessmentLibrary() {
             {filtered.map(t => (
               <div key={t.id} className="relative group">
                 <button
-                  onClick={() => setSelected(t)}
+                  onClick={() => {
+                    if (patientId) {
+                      setSelectedForPatient(prev => prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]);
+                    } else {
+                      setSelected(t);
+                    }
+                  }}
                   className={`w-full text-left p-4 rounded-2xl border transition-all ${
-                    selected?.id === t.id 
+                    (patientId ? selectedForPatient.includes(t.id) : selected?.id === t.id)
                     ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100' 
                     : 'bg-white border-slate-100 text-slate-700 hover:border-blue-200'
                   }`}
                 >
-                  <p className="text-xs font-bold uppercase tracking-widest opacity-60 mb-1">{t.category}</p>
-                  <p className="text-sm font-bold">{t.title}</p>
+                  <div className="flex items-center justify-between pointer-events-none">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest opacity-60 mb-1">{t.category}</p>
+                      <p className="text-sm font-bold">{t.title}</p>
+                    </div>
+                    {patientId && (
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        selectedForPatient.includes(t.id) ? 'bg-white border-white' : 'border-slate-300'
+                      }`}>
+                        {selectedForPatient.includes(t.id) && <CheckCircle2 className="w-3 h-3 text-blue-600" />}
+                      </div>
+                    )}
+                  </div>
                 </button>
                 {/* Trash button for admins to delete any scale */}
-                {(profile?.role === 'ADM_SISTEMA' || profile?.role === 'GESTOR') && (
+                {(['ADM_SISTEMA', 'SUPER_GESTOR'].includes(profile?.role || '') || profile?.role === 'GESTOR') && (
                   <button
                     onClick={(e) => requestDelete(e, t)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-rose-100 text-rose-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-200"
@@ -341,7 +376,7 @@ export default function AssessmentLibrary() {
               </div>
             ))}
             
-            {filtered.length === 0 && search.length > 2 && profile?.role === 'ADM_SISTEMA' && (
+            {filtered.length === 0 && search.length > 2 && ['ADM_SISTEMA', 'SUPER_GESTOR'].includes(profile?.role || '') && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -370,7 +405,68 @@ export default function AssessmentLibrary() {
 
         <div className="lg:col-span-2">
           <AnimatePresence mode="wait">
-            {selected ? (
+            {patientId && selectedForPatient.length > 0 ? (
+              <motion.div
+                key="patient-selection"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="bg-brand-primary/5 rounded-3xl border border-brand-primary/20 shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]"
+              >
+                <div className="p-8 pb-6 text-center space-y-2 border-b border-brand-primary/10">
+                  <div className="mx-auto w-16 h-16 bg-white rounded-full flex items-center justify-center text-brand-primary mb-4 shadow-xl shadow-brand-primary/10">
+                    <ClipboardCheck className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-black text-brand-primary tracking-tight">
+                    {selectedForPatient.length} {selectedForPatient.length === 1 ? 'Avaliação selecionada' : 'Avaliações selecionadas'}
+                  </h3>
+                  <p className="text-sm text-brand-primary/70 font-bold">
+                    Selecione o que deseja fazer com as avaliações marcadas
+                  </p>
+                </div>
+                
+                <div className="p-8 flex-1">
+                  <div className="space-y-3 mb-8">
+                    {selectedForPatient.map(id => {
+                      const t = allTemplates.find(x => x.id === id);
+                      if (!t) return null;
+                      return (
+                        <div key={t.id} className="bg-white p-4 rounded-xl shadow-sm border border-brand-primary/10 flex items-center gap-3">
+                          <CheckCircle2 className="w-5 h-5 text-brand-primary" />
+                          <p className="text-sm font-bold text-slate-800">{t.title}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-col gap-4 mt-auto">
+                    <button 
+                      onClick={() => {
+                        alert('Em demonstração: Avaliações aplicadas preencheriam formulário aqui.');
+                        setSelectedForPatient([]);
+                        if(onBack) onBack();
+                      }}
+                      className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-[12px] uppercase tracking-widest hover:brightness-110 transition-all shadow-xl shadow-brand-primary/20"
+                    >
+                      Aplicar na hora
+                    </button>
+                    <button 
+                      onClick={() => {
+                        alert('Em demonstração: Avaliações agendadas para uso futuro.');
+                        setSelectedForPatient([]);
+                        if(onBack) onBack();
+                      }}
+                      className="w-full py-4 bg-white text-brand-primary border-2 border-brand-primary/20 rounded-2xl font-black text-[12px] uppercase tracking-widest hover:bg-brand-primary/5 transition-all"
+                    >
+                      Modular para atendimento futuro
+                    </button>
+                    {onBack && (
+                       <button onClick={onBack} className="w-full py-4 text-slate-500 font-bold text-xs hover:text-slate-700 transition-colors">Voltar</button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            ) : selected ? (
               <motion.div
                 key={selected.id}
                 initial={{ opacity: 0, x: 20 }}

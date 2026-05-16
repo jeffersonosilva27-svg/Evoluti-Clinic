@@ -23,14 +23,27 @@ function AppContent() {
   const [clinics, setClinics] = useState<Clinic[]>([]);
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [assessingPatientId, setAssessingPatientId] = useState<string | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if (tab !== 'assessments' && tab !== 'patients') {
+      setSelectedPatientId(null);
+      setAssessingPatientId(null);
+    }
+    if (tab === 'assessments') {
+      // If navigating to assessments from sidebar, clear patient context
+      setAssessingPatientId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchClinics = async () => {
       if (!profile) return;
       try {
         let q;
-        if (profile.role === 'ADM_SISTEMA') {
+        if (profile.role === 'ADM_SISTEMA' || profile.role === 'SUPER_GESTOR') {
           q = collection(db, 'clinics');
         } else if (profile.clinics && profile.clinics.length > 0) {
           q = query(collection(db, 'clinics'), where(documentId(), 'in', profile.clinics.slice(0, 30)));
@@ -92,11 +105,11 @@ function AppContent() {
         return <Agenda selectedClinic={selectedClinic} />;
       case 'patients':
         if (selectedPatientId) {
-          return <PatientDetail patientId={selectedPatientId} onBack={() => setSelectedPatientId(null)} />;
+          return <PatientDetail patientId={selectedPatientId} onBack={() => setSelectedPatientId(null)} onNavigateToAssessments={() => { setAssessingPatientId(selectedPatientId); setActiveTab('assessments'); }} />;
         }
         return <PatientList onSelect={(id) => setSelectedPatientId(id)} />;
       case 'assessments':
-        return <AssessmentLibrary />;
+        return <AssessmentLibrary patientId={assessingPatientId || undefined} onBack={() => { setAssessingPatientId(null); setActiveTab('patients'); }} />;
       case 'finance':
         return <Finance />;
       case 'management':
@@ -116,7 +129,7 @@ function AppContent() {
   return (
     <Layout 
       activeTab={activeTab} 
-      setActiveTab={setActiveTab} 
+      setActiveTab={handleTabChange} 
       selectedClinic={selectedClinic} 
       setSelectedClinic={setSelectedClinic}
       clinics={clinics}

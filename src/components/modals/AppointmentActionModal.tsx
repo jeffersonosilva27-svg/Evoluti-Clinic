@@ -18,14 +18,48 @@ interface AppointmentActionModalProps {
 export default function AppointmentActionModal({ isOpen, onClose, appointment }: AppointmentActionModalProps) {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [refiningAI, setRefiningAI] = useState(false);
+  const [aiError, setAiError] = useState('');
   const [showEvolutionForm, setShowEvolutionForm] = useState(false);
   const [showCancelOptions, setShowCancelOptions] = useState(false);
+  const [hasEvolution, setHasEvolution] = useState(false);
   const [evolutionNote, setEvolutionNote] = useState({
     subjective: '',
     objective: '',
     assessment: '',
     plan: ''
   });
+
+  React.useEffect(() => {
+    const checkEvolution = async () => {
+      try {
+        let q = query(
+          collection(db, 'evolutions'), 
+          where('appointmentId', '==', appointment.id)
+        );
+        if (appointment.clinicId) {
+          q = query(q, where('clinicId', '==', appointment.clinicId));
+        }
+        if (profile?.role === 'PROFISSIONAL') {
+          q = query(q, where('professionalId', '==', profile.uid));
+        } else if (appointment.professionalId) {
+          q = query(q, where('professionalId', '==', appointment.professionalId));
+        }
+
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          setHasEvolution(true);
+        } else {
+          setHasEvolution(false);
+        }
+      } catch (e) {
+        console.error("Error checking evolution", e);
+      }
+    };
+    if (appointment.id) {
+      checkEvolution();
+    }
+  }, [appointment.id, appointment.clinicId, appointment.professionalId, profile]);
 
   React.useEffect(() => {
     if (showEvolutionForm && appointment.patientId && !evolutionNote.plan) {
@@ -107,12 +141,69 @@ export default function AppointmentActionModal({ isOpen, onClose, appointment }:
     }
   };
 
+  const handleRefineWithAI = async () => {
+    if (!evolutionNote.subjective && !evolutionNote.objective && !evolutionNote.assessment && !evolutionNote.plan) return;
+    setRefiningAI(true);
+    setAiError('');
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
+      
+      const prompt = `Você é um assistente clínico. Organize e refine o seguinte texto da evolução usando a metodologia SOAP (Subjetivo, Objetivo, Avaliação, Plano).
+Apenas melhore a gramática, ortografia, a coesão profissional, clareza e estrutura (em português). 
+REGRA CRÍTICA E INQUEBRÁVEL: NUNCA inferir ou adicionar condutas, relatos, sensações, parâmetros, tratamentos ou características que não tenham sido estritamente declaradas na evolução. Apenas refine o que foi providenciado. Retorne APENAS um JSON estrito com as chaves: "subjective", "objective", "assessment", "plan" com os textos.
+
+Texto Original:
+Subjetivo: ${evolutionNote.subjective}
+Objetivo: ${evolutionNote.objective}
+Avaliação: ${evolutionNote.assessment}
+Plano e Conduta: ${evolutionNote.plan}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      
+      if (response.text) {
+         try {
+             // sanitize in case markdown blocks code output
+             const cleanJsonString = response.text.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
+             const refinedText = JSON.parse(cleanJsonString);
+             setEvolutionNote({
+                subjective: refinedText.subjective || evolutionNote.subjective,
+                objective: refinedText.objective || evolutionNote.objective,
+                assessment: refinedText.assessment || evolutionNote.assessment,
+                plan: refinedText.plan || evolutionNote.plan
+             });
+         } catch (e) {
+             console.error("Failed to parse JSON", e);
+             setAiError("Não foi possível processar a resposta da IA.");
+         }
+      }
+    } catch (err) {
+      console.error(err);
+      setAiError("Ocorreu um erro ao refinar o texto.");
+    } finally {
+      setRefiningAI(false);
+    }
+  };
+
   const handleEvolve = async () => {
     if (!evolutionNote.assessment) return; // requiring at least assessment
     setLoading(true);
     try {
       // 1. Create evolution
       const signature = profile ? `${profile.profession === 'MEDICINA' ? 'Dr(a).' : ''} ${profile.name} - Reg: ${profile.professionalRegistry || 'N/A'}` : '';
+      
+      let evolutionDate: any = serverTimestamp();
+      if (appointment.date) {
+        const appointmentTime = appointment.date.toDate().getTime();
+        evolutionDate = new Date(appointmentTime + 60 * 60 * 1000);
+      }
+
       await addDoc(collection(db, 'evolutions'), {
         patientId: appointment.patientId,
         professionalId: appointment.professionalId,
@@ -121,7 +212,7 @@ export default function AppointmentActionModal({ isOpen, onClose, appointment }:
           ...evolutionNote
         },
         signature,
-        date: serverTimestamp(),
+        date: evolutionDate,
         appointmentId: appointment.id
       });
 
@@ -211,20 +302,30 @@ export default function AppointmentActionModal({ isOpen, onClose, appointment }:
             </div>
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => setShowEvolutionForm(false)}
-              className="flex-1 py-4 border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
-            >
-              Voltar
-            </button>
-            <button
-              onClick={handleEvolve}
-              disabled={loading || !evolutionNote.assessment}
-              className="flex-[2] py-4 bg-brand-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg flex items-center justify-center gap-2"
-            >
-              {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Salvar Evolução'}
-            </button>
+          <div className="flex flex-col gap-3 pt-2">
+            {aiError && <p className="text-xs text-rose-500 font-bold text-right">{aiError}</p>}
+            <div className="flex gap-3">
+               <button
+                 onClick={() => setShowEvolutionForm(false)}
+                 className="flex-1 py-4 border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+               >
+                 Voltar
+               </button>
+               <button
+                 onClick={handleRefineWithAI}
+                 disabled={loading || refiningAI || (!evolutionNote.subjective && !evolutionNote.objective && !evolutionNote.assessment && !evolutionNote.plan)}
+                 className="flex-[1.5] py-4 bg-brand-primary/10 text-brand-primary rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-primary/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+               >
+                 {refiningAI ? <div className="w-4 h-4 border-2 border-brand-primary/30 border-t-brand-primary rounded-full animate-spin" /> : 'Refinar c/ IA'}
+               </button>
+               <button
+                 onClick={handleEvolve}
+                 disabled={loading || !evolutionNote.assessment}
+                 className="flex-[2] py-4 bg-brand-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+               >
+                 {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Salvar Evolução'}
+               </button>
+            </div>
           </div>
         </div>
       ) : isRescheduling ? (
@@ -315,7 +416,7 @@ export default function AppointmentActionModal({ isOpen, onClose, appointment }:
           <div className="grid grid-cols-2 gap-3 pt-4">
             {profile?.role !== 'PROFISSIONAL' || appointment.professionalId === profile?.uid ? (
               <>
-                {profile?.role !== 'RECEPCIONISTA' && (
+                {profile?.role !== 'RECEPCIONISTA' && !hasEvolution && (
                   <button
                     disabled={loading}
                     onClick={() => setShowEvolutionForm(true)}
@@ -324,6 +425,12 @@ export default function AppointmentActionModal({ isOpen, onClose, appointment }:
                     <FileText className="w-4 h-4" />
                     Registrar Evolução / Finalizar
                   </button>
+                )}
+                {hasEvolution && profile?.role !== 'RECEPCIONISTA' && (
+                  <div className="col-span-2 py-3 bg-emerald-50 text-emerald-700 text-center rounded-2xl border border-emerald-100 flex items-center justify-center gap-2">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Evolução já registrada</span>
+                  </div>
                 )}
                 <button
                   disabled={loading}

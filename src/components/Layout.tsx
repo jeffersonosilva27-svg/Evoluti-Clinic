@@ -40,13 +40,13 @@ export default function Layout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart2, roles: ['ADM_SISTEMA', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
-    { id: 'agenda', label: 'Agenda', icon: Calendar, roles: ['ADM_SISTEMA', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
-    { id: 'patients', label: 'Pacientes', icon: Users, roles: ['ADM_SISTEMA', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
-    { id: 'assessments', label: 'Avaliações', icon: ClipboardList, roles: ['ADM_SISTEMA', 'GESTOR', 'PROFISSIONAL'] },
-    { id: 'finance', label: 'Financeiro', icon: DollarSign, roles: ['ADM_SISTEMA', 'GESTOR'] },
-    { id: 'management', label: 'Gestão/Unidades', icon: Building2, roles: ['ADM_SISTEMA', 'GESTOR'] },
-    { id: 'team', label: 'Equipe', icon: UserCog, roles: ['ADM_SISTEMA', 'GESTOR'] },
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart2, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
+    { id: 'agenda', label: 'Agenda', icon: Calendar, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
+    { id: 'patients', label: 'Pacientes', icon: Users, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR', 'PROFISSIONAL', 'RECEPCIONISTA'] },
+    { id: 'assessments', label: 'Avaliações', icon: ClipboardList, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR', 'PROFISSIONAL'] },
+    { id: 'finance', label: 'Financeiro', icon: DollarSign, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR'] },
+    { id: 'management', label: 'Gestão/Unidades', icon: Building2, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR'] },
+    { id: 'team', label: 'Equipe', icon: UserCog, roles: ['ADM_SISTEMA', 'SUPER_GESTOR', 'GESTOR'] },
   ];
 
   const filteredMenu = menuItems.filter(item => profile && item.roles.includes(profile.role));
@@ -76,7 +76,7 @@ export default function Layout({
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center gap-3 px-6 py-3 text-sm transition-all duration-200 border-l-4 ${
                     activeTab === item.id 
-                    ? 'bg-brand-primary/10 border-brand-primary text-white font-semibold' 
+                    ? 'bg-brand-secondary/10 border-brand-secondary text-brand-secondary font-semibold' 
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
@@ -88,7 +88,7 @@ export default function Layout({
 
             <div className="p-6 mt-auto">
               <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-4">
-                Acesso {profile?.role === 'ADM_SISTEMA' ? 'ADM DE SISTEMA' : profile?.role.replace('_', ' ')}
+                ACESSO {['ADM_SISTEMA', 'SUPER_GESTOR'].includes(profile?.role || '') ? 'ADM SISTEMA' : profile?.role.replace('_', ' ')}
               </div>
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 text-sm font-bold uppercase border border-white/10">
@@ -101,7 +101,7 @@ export default function Layout({
               </div>
               <button 
                 onClick={logout}
-                className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-white rounded-lg transition-all text-sm font-medium border border-white/5 hover:border-white/10"
+                className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-lg transition-all text-sm font-medium border border-white/5 hover:border-white/10 shadow-inner"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Encerrar Sessão</span>
@@ -161,14 +161,16 @@ export default function Layout({
           </div>
 
           <div className="flex items-center gap-2">
-            <button 
-              onClick={onNewAppointment}
-              className="flex items-center gap-2 px-3 lg:px-5 py-1.5 lg:py-2.5 bg-brand-primary text-white rounded-lg text-[10px] lg:text-xs font-bold hover:brightness-110 transition-all shadow-lg shadow-brand-primary/20"
-            >
-              <PlusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-              <span className="hidden lg:inline">Novo Agendamento</span>
-              <span className="inline lg:hidden">Novo</span>
-            </button>
+            {profile?.role !== 'PROFISSIONAL' && (
+              <button 
+                onClick={onNewAppointment}
+                className="flex items-center gap-2 px-3 lg:px-5 py-1.5 lg:py-2.5 bg-brand-primary text-white rounded-lg text-[10px] lg:text-xs font-bold hover:brightness-110 transition-all shadow-lg shadow-brand-primary/20"
+              >
+                <PlusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
+                <span className="hidden lg:inline">Novo Agendamento</span>
+                <span className="inline lg:hidden">Novo</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -192,7 +194,7 @@ export default function Layout({
             onClick={() => setActiveTab(item.id)}
             className={`flex-shrink-0 flex flex-col items-center justify-center gap-1 min-w-[64px] flex-1 py-2 rounded-xl transition-all ${
               activeTab === item.id 
-              ? 'text-brand-primary' 
+              ? 'text-brand-secondary' 
               : 'text-slate-400'
             }`}
           >

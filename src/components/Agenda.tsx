@@ -55,11 +55,11 @@ export default function Agenda({
 
     let q = query(
       collection(db, "users"),
-      where("role", "in", ["PROFISSIONAL", "GESTOR", "ADM_SISTEMA"]),
+      where("role", "in", ["PROFISSIONAL", "GESTOR"]),
     );
 
     // Filter by clinic in query if not super gestor
-    if (profile.role !== "ADM_SISTEMA") {
+    if (profile.role !== "ADM_SISTEMA" && profile.role !== "SUPER_GESTOR") {
       if (!profile.clinics || profile.clinics.length === 0) {
         setProfessionals([]);
         setLoading(false);
@@ -111,7 +111,7 @@ export default function Agenda({
     // Filter by clinic
     if (selectedClinic) {
       q = query(q, where("clinicId", "==", selectedClinic));
-    } else if (profile.role !== "ADM_SISTEMA") {
+    } else if (profile.role !== "ADM_SISTEMA" && profile.role !== "SUPER_GESTOR") {
       // If no clinic selected, filter by all accessible clinics
       if (profile.clinics.length > 0) {
         q = query(q, where("clinicId", "in", profile.clinics));
@@ -328,12 +328,14 @@ export default function Agenda({
                         ))}
 
                       {/* Empty state hint on hover */}
-                      <button
-                        onClick={() => setShowAddModal(true)}
-                        className="hidden group-hover:flex w-full py-2 border-2 border-dashed border-slate-200 rounded-xl items-center justify-center text-slate-300 hover:border-brand-primary hover:text-brand-primary transition-all mt-auto"
-                      >
-                        <PlusCircle className="w-4 h-4" />
-                      </button>
+                      {profile?.role !== 'PROFISSIONAL' && (
+                        <button
+                          onClick={() => setShowAddModal(true)}
+                          className="hidden group-hover:flex w-full py-2 border-2 border-dashed border-slate-200 rounded-xl items-center justify-center text-slate-300 hover:border-brand-primary hover:text-brand-primary transition-all mt-auto"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

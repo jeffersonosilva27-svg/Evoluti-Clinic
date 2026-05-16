@@ -52,7 +52,7 @@ export default function PatientList({
 
     let q = query(collection(db, "patients"));
 
-    if (profile.role !== "ADM_SISTEMA") {
+    if (profile.role !== "ADM_SISTEMA" && profile.role !== "SUPER_GESTOR") {
       if (profile.clinics && profile.clinics.length > 0) {
         q = query(q, where("clinicId", "in", profile.clinics));
       } else {
@@ -67,6 +67,7 @@ export default function PatientList({
         let docs = snap.docs.map(
           (doc) => ({ id: doc.id, ...doc.data() }) as Patient,
         );
+        docs.sort((a, b) => a.name.localeCompare(b.name));
         setPatients(docs);
       },
       (err) => {
@@ -131,7 +132,7 @@ export default function PatientList({
               onClick={() => onSelect(patient.id)}
             >
               <div className="flex items-center gap-5 flex-1 min-w-0">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100/50 flex items-center justify-center text-indigo-500 text-lg font-black group-hover:scale-105 transition-transform shrink-0">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100/50 flex items-center justify-center text-emerald-600 text-lg font-black group-hover:scale-105 transition-transform shrink-0">
                   {patient.name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -182,7 +183,7 @@ export default function PatientList({
                           patient.lastAssessmentAt.toDate(),
                         ) > 30)
                         ? "text-amber-700 bg-amber-100"
-                        : "text-brand-primary bg-indigo-50 border border-indigo-100"
+                        : "text-brand-primary bg-emerald-50 border border-emerald-100"
                     }`}
                   >
                     {patient.sessionCountSinceAssessment > 10 ||

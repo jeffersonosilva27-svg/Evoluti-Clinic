@@ -38,7 +38,7 @@ export default function NewPatientModal({ isOpen, onClose }: NewPatientModalProp
       const q = query(collection(db, 'clinics'));
       const snap = await getDocs(q);
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as Clinic));
-      const filtered = all.filter(c => profile.role === 'ADM_SISTEMA' || profile.clinics.includes(c.id));
+      const filtered = all.filter(c => profile.role === 'ADM_SISTEMA' || profile.role === 'SUPER_GESTOR' || profile.clinics.includes(c.id));
       setClinics(filtered);
       if (filtered.length === 1) {
         setFormData(prev => ({ ...prev, clinicId: filtered[0].id }));

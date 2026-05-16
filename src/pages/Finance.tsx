@@ -17,7 +17,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import NewFinancialRecordModal from "../components/modals/NewFinancialRecordModal";
-import { Appointment, UserProfile } from "../types";
+import { Appointment, UserProfile, Patient } from "../types";
 import { getDocs } from "firebase/firestore";
 
 export default function Finance() {
@@ -27,6 +27,8 @@ export default function Finance() {
     Record<string, { name: string; production: number }>
   >({});
   const [unpaidHours, setUnpaidHours] = useState(0);
+  const [appointmentIncome, setAppointmentIncome] = useState(0);
+  const [scheduledIncome, setScheduledIncome] = useState(0);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -39,7 +41,7 @@ export default function Finance() {
       where("date", "<=", endOfMonth(currentMonth)),
     );
 
-    if (profile.role !== "ADM_SISTEMA") {
+    if (profile.role !== "ADM_SISTEMA" && profile.role !== "SUPER_GESTOR") {
       if (profile.clinics && profile.clinics.length > 0) {
         q = query(q, where("clinicId", "in", profile.clinics));
       } else {
@@ -65,15 +67,25 @@ export default function Finance() {
     // Fetch professional production (based on appointments or records)
     // Simplified: fetch all appointments for the month
     const fetchProduction = async () => {
-      if (profile.role === "PROFISSIONAL") return;
+      // Fetch Patients to get serviceValue
+      let ptQ = query(collection(db, "patients"));
+      if (profile?.role !== "ADM_SISTEMA" && profile?.role !== "SUPER_GESTOR") {
+        if (!profile?.clinics || profile?.clinics.length === 0) return;
+        ptQ = query(ptQ, where("clinicId", "in", profile.clinics));
+      }
+      const patientsSnap = await getDocs(ptQ);
+      const patientsRecord: Record<string, number> = {};
+      patientsSnap.docs.forEach(doc => {
+         patientsRecord[doc.id] = (doc.data() as Patient).serviceValue || 0;
+      });
 
       let apptQ = query(
         collection(db, "appointments"),
         where("date", ">=", startOfMonth(currentMonth)),
         where("date", "<=", endOfMonth(currentMonth)),
       );
-      if (profile.role !== "ADM_SISTEMA") {
-        if (!profile.clinics || profile.clinics.length === 0) {
+      if (profile?.role !== "ADM_SISTEMA" && profile?.role !== "SUPER_GESTOR") {
+        if (!profile?.clinics || profile?.clinics.length === 0) {
           setProfessionals({});
           return;
         }
@@ -81,19 +93,33 @@ export default function Finance() {
       }
 
       const snap = await getDocs(apptQ);
-      const production: Record<string, { name: string; count: number }> = {};
+      const production: Record<string, { name: string; value: number }> = {};
       let unpaidCount = 0;
+      let apptIncome = 0;
+      let schedIncome = 0;
 
       snap.docs.forEach((doc) => {
         const appt = doc.data() as Appointment;
-        if (appt.status === "completed" && appt.professionalId) {
+        if (appt.type === 'Deslocamento (Ida)' || appt.type === 'Deslocamento (Volta)') return;
+
+        const ptValue = patientsRecord[appt.patientId] || 0;
+
+        if (appt.professionalId) {
           if (!production[appt.professionalId]) {
             production[appt.professionalId] = {
               name: appt.professionalName || "Desconhecido",
-              count: 0,
+              value: 0,
             };
           }
-          production[appt.professionalId].count += 1;
+          if (appt.status === 'completed' || appt.status === 'attended') {
+             production[appt.professionalId].value += ptValue;
+          }
+        }
+        
+        if (appt.status === "completed" || appt.status === "attended") {
+           apptIncome += ptValue;
+        } else if (appt.status === "scheduled") {
+           schedIncome += ptValue;
         } else if (
           appt.status === "cancelled" &&
           (appt as any).cancellationReason === "Antecedência < 24h"
@@ -102,16 +128,18 @@ export default function Finance() {
         }
       });
 
-      // Calculate hypothetical value (using an average of 150 per session for mock)
       const mapped: Record<string, { name: string; production: number }> = {};
       Object.keys(production).forEach((k) => {
         mapped[k] = {
           name: production[k].name,
-          production: production[k].count * 150,
+          production: production[k].value,
         };
       });
+      
       setProfessionals(mapped);
       setUnpaidHours(unpaidCount);
+      setAppointmentIncome(apptIncome);
+      setScheduledIncome(schedIncome);
     };
 
     fetchProduction();
@@ -119,17 +147,16 @@ export default function Finance() {
     return () => unsubscribe();
   }, [currentMonth, profile]);
 
-  const totalIncome = records
+  const totalRecordsIncome = records
     .filter((r) => r.type === "income")
     .reduce((acc, curr) => acc + curr.amount, 0);
+  const totalIncome = totalRecordsIncome + appointmentIncome;
+
   const totalOutcome = records
     .filter((r) => r.type === "outcome")
     .reduce((acc, curr) => acc + curr.amount, 0);
 
-  const totalEstimatedProduction = (
-    Object.values(professionals) as { name: string; production: number }[]
-  ).reduce((acc, curr) => acc + curr.production, 0);
-  const estimatedResult = totalIncome - totalOutcome + totalEstimatedProduction;
+  const estimatedResult = totalIncome + scheduledIncome - totalOutcome;
 
   return (
     <div className="space-y-8">
@@ -176,7 +203,7 @@ export default function Finance() {
             <Plus className="w-4 h-4" />
             Novo Registro
           </button>
-          <button className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">
+          <button className="flex items-center gap-2 px-6 py-3 bg-brand-primary text-white rounded-xl text-sm font-bold hover:brightness-110 transition-all shadow-lg shadow-brand-primary/20">
             <Download className="w-4 h-4" />
             Relatório de Cobrança
           </button>
@@ -190,20 +217,20 @@ export default function Finance() {
 
       {/* Summary Cards Bento Layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 lg:gap-6 auto-rows-[minmax(140px,auto)]">
-        <div className="bg-indigo-50 border border-indigo-100/50 p-6 rounded-[2rem] shadow-sm lg:col-span-3 flex flex-col justify-between transition-transform hover:-translate-y-1">
+        <div className="bg-slate-100 border border-slate-200/50 p-6 rounded-[2rem] shadow-sm lg:col-span-3 flex flex-col justify-between transition-transform hover:-translate-y-1">
           <div className="flex items-center justify-between">
-            <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+            <div className="p-3 bg-slate-200 text-slate-700 rounded-2xl">
               <TrendingUp className="w-6 h-6" />
             </div>
-            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
               {format(currentMonth, "MMM", { locale: ptBR })}
             </span>
           </div>
           <div className="mt-4">
-            <p className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
               Total Entradas
             </p>
-            <p className="text-3xl font-black text-indigo-900 mt-1 tracking-tighter">
+            <p className="text-3xl font-black text-slate-900 mt-1 tracking-tighter">
               R${" "}
               {totalIncome.toLocaleString("pt-BR", {
                 minimumFractionDigits: 2,
